@@ -13,18 +13,20 @@ Este projeto serve como base para coleta de dados de candidaturas, bens de candi
 
 ## 🛠️ O que ele faz e Como funciona
 
-O script centraliza as operações na classe `DownloadTSE` contida no arquivo [main.py](file:///d:/Projetos/tse-ingestao/main.py). 
+O projeto está estruturado em dois módulos principais:
+1. **[downloader.py](file:///d:/Projetos/tse-ingestao/downloader.py):** Contém a classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/downloader.py#L8), responsável por toda a lógica de negócio, criação de diretórios e downloads.
+2. **[main.py](file:///d:/Projetos/tse-ingestao/main.py):** Funciona como a interface de linha de comando (CLI) do projeto, interpretando argumentos e inicializando o fluxo de downloads.
 
 ### Fluxo de Funcionamento:
-1. **Inicialização:** Cria automaticamente um diretório local `./data` para armazenar os arquivos baixados, caso ele não exista.
-2. **Download das Categorias:** Para cada ano especificado, o script faz requisições HTTP `GET` síncronas usando a biblioteca `requests` para os seguintes conjuntos de dados do TSE:
+1. **Inicialização:** A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/downloader.py#L8) cria automaticamente a pasta `./data` para salvar os arquivos baixados, se ela não existir.
+2. **Download das Categorias:** Para cada ano especificado, o script faz requisições HTTP `GET` síncronas usando a biblioteca `requests` (e validações via `http.HTTPStatus`) para obter os seguintes conjuntos de dados zipados do repositório do TSE:
    - **Consulta Candidatura:** Informações cadastrais de candidatos (`consulta_cand_<ano>.zip`).
    - **Bens de Candidatos:** Relação de bens declarados pelos candidatos (`bem_candidato_<ano>.zip`).
    - **Coligações:** Detalhes de coligações partidárias (`consulta_coligacao_<ano>.zip`).
-   - **Motivo de Cassação:** Dados de candidatos que tiveram registro cassado e seus motivos (`motivo_cassacao_<ano>.zip`).
+   - **Motivo de Cassação:** Registro de candidatos cassados e motivos (`motivo_cassacao_<ano>.zip`).
    - **Votação por Município/Zona:** Resultados detalhados de votação (`votacao_candidato_munzona_<ano>.zip`).
-3. **Organização Local:** Salva os arquivos zipados na estrutura de pastas `./data/<ano>/`.
-4. **Monitoramento:** Utiliza o utilitário `track` da biblioteca `rich` para exibir uma barra de progresso interativa no terminal durante a iteração de múltiplos anos.
+3. **Organização Local:** Salva os zips na pasta `./data/<ano>/`.
+4. **Monitoramento:** Utiliza o utilitário `track` da biblioteca `rich` para renderizar uma barra de progresso interativa no terminal durante a iteração de anos.
 
 > [!NOTE]
 > No estado atual, as requisições de download são executadas de forma sequencial (síncrona), o que pode limitar a performance dependendo da velocidade de conexão e do volume de dados.
@@ -65,12 +67,33 @@ source .venv/bin/activate
 uv pip install requests rich
 ```
 
-### 3. Executar o Script de Ingestão
-Com as dependências instaladas e o ambiente virtual ativo, execute:
+### 3. Executar o Script de Ingestão (CLI)
+Com as dependências instaladas e o ambiente virtual ativo, você pode rodar o script com diferentes parâmetros de ano e intervalo através da CLI suportada pelo `argparse`:
+
 ```powershell
-uv run main.py
+uv run main.py [argumentos]
 ```
-Isso iniciará o download dos dados para os anos de **2014**, **2018** e **2022** (conforme configurado por padrão em `main.py`). Os arquivos serão salvos progressivamente na pasta `./data/`.
+
+#### Argumentos disponíveis:
+* `-i`, `--inicio` (int): Ano inicial a ser baixado (padrão: `2014`).
+* `-f`, `--fim` (int): Ano final a ser baixado (padrão: `2022`).
+* `--intervalo` (int): Passo/intervalo entre os anos (padrão: `2022`).
+
+#### Exemplos de uso:
+* **Execução padrão (baixa apenas o ano inicial `2014` devido ao intervalo de `2022`):**
+  ```powershell
+  uv run main.py
+  ```
+* **Baixar os anos eleitorais de 4 em 4 anos (2014, 2018, 2022):**
+  ```powershell
+  uv run main.py --inicio 2014 --fim 2022 --intervalo 4
+  ```
+* **Baixar apenas um ano específico (ex: 2022):**
+  ```powershell
+  uv run main.py --inicio 2022 --fim 2022
+  ```
+
+Os arquivos resultantes serão salvos progressivamente no diretório `./data/`.
 
 ---
 
