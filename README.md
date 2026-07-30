@@ -80,6 +80,8 @@ Abaixo estão as evidências de execuções do código original desenvolvido por
 
 
 ### 1. Execução da função `download_ano()`, apenas para o ano 2022:
+> [!NOTE]
+> **Versão de referência da execução:** `1d951ea` (Commit correspondente ao código original/baseline).
 
 ![Download Ano 2022](md-images/execucao-download-2022.png)  
 *Execução da função download_ano(2022).*
@@ -91,6 +93,8 @@ Abaixo estão as evidências de execuções do código original desenvolvido por
 * **Data de Execução:** 29/07/2026 21:19:13 (GMT -03:00)
 
 ### 2. Execução da função `download_anos()`, para os anos 2014, 2018 e 2022:
+> [!NOTE]
+> **Versão de referência da execução:** `1d951ea` (Commit correspondente ao código original/baseline).
 
 ![Download Anos 2014, 2018 e 2022](md-images/execucao-download-2014_2018_2022.png)  
 *Execução da função download_anos(2014, 2018, 2022).*
