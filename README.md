@@ -11,48 +11,85 @@ Este projeto serve como base para coleta de dados de candidaturas, bens de candi
 
 ---
 
-## 🛠️ O que ele faz e Como funciona
+## 📂 Estrutura do Projeto
 
-O projeto está estruturado em dois módulos principais:
-1. **[downloader.py](file:///d:/Projetos/tse-ingestao/downloader.py):** Contém a classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/downloader.py#L8), responsável por toda a lógica de negócio, criação de diretórios e downloads.
-2. **[main.py](file:///d:/Projetos/tse-ingestao/main.py):** Funciona como a interface de linha de comando (CLI) do projeto, interpretando argumentos e inicializando o fluxo de downloads.
+O projeto foi estruturado em submódulos para melhorar a manutenção e a reutilização do código:
 
-### Fluxo de Funcionamento:
-1. **Inicialização:** A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/downloader.py#L8) cria automaticamente a pasta `./data` para salvar os arquivos baixados, se ela não existir.
-2. **Download das Categorias:** Para cada ano especificado, o script faz requisições HTTP `GET` síncronas usando a biblioteca `requests` (e validações via `http.HTTPStatus`) para obter os seguintes conjuntos de dados zipados do repositório do TSE:
-   - **Consulta Candidatura:** Informações cadastrais de candidatos (`consulta_cand_<ano>.zip`).
-   - **Bens de Candidatos:** Relação de bens declarados pelos candidatos (`bem_candidato_<ano>.zip`).
-   - **Coligações:** Detalhes de coligações partidárias (`consulta_coligacao_<ano>.zip`).
-   - **Motivo de Cassação:** Registro de candidatos cassados e motivos (`motivo_cassacao_<ano>.zip`).
-   - **Votação por Município/Zona:** Resultados detalhados de votação (`votacao_candidato_munzona_<ano>.zip`).
-3. **Organização Local:** Salva os zips na pasta `./data/<ano>/`.
-4. **Monitoramento:** Utiliza o utilitário `track` da biblioteca `rich` para renderizar uma barra de progresso interativa no terminal durante a iteração de anos.
+- [main.py](file:///d:/Projetos/tse-ingestao/main.py): Ponto de entrada do script que atua como Interface de Linha de Comando (CLI), interpretando argumentos fornecidos no terminal e inicializando o fluxo de downloads.
+- [src/](file:///d:/Projetos/tse-ingestao/src): Diretório contendo a lógica interna do projeto:
+  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7), que encapsula as configurações de cada conjunto de dados e constrói as URLs de download, além de definir o [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L23).
+  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L14), responsável por realizar as requisições HTTP, gerenciar a criação das pastas e orquestrar os fluxos de download.
 
-> [!NOTE]
-> No estado atual, as requisições de download são executadas de forma sequencial (síncrona), o que pode limitar a performance dependendo da velocidade de conexão e do volume de dados.
+---
+
+## 🛠️ Novas Funções e Módulos
+
+### 1. Representação do Dataset: [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py)
+Introduzimos a classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7) contendo os metadados necessários para mapear os endpoints do TSE:
+* `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
+* `endpoint`: Caminho relativo da categoria de dados no servidor do TSE.
+* `arquivo`: String template com formatação do ano (`{nome}_{ano}.zip`).
+* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L13): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
+
+Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L23), com as bases disponíveis:
+* `candidatos`
+* `bens_candidatos`
+* `coligacoes`
+* `motivo_cassacao`
+* `votacao_candidato_municipio_zona`
+
+### 2. Otimização do Downloader: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
+A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L14) foi otimizada e agora dispõe de novas funções:
+* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L19): Efetua a requisição HTTP síncrona `GET` para uma base específica e salva o conteúdo no diretório de destino correspondente.
+* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L44): Itera em lote baixando **todas** as bases listadas no catálogo para a lista de anos informados, exibindo uma barra de progresso avançada no console (`rich.progress.Progress`).
+* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L61): Efetua o download focado em **apenas uma** base selecionada no catálogo para a lista de anos desejada.
+
+---
+
+## 📊 Disposição e Distribuição dos Dados
+
+A disposição física dos arquivos baixados no disco foi alterada para simplificar o agrupamento e facilitar o consumo posterior dos dados.
+
+Anteriormente, os arquivos eram salvos organizados em diretórios baseados em seus respectivos anos eleitorais (ex: `./data/2022/`). 
+
+Com o novo modelo estruturado, os dados são distribuídos **por conjunto de dados/endpoint**. Isso significa que todos os arquivos `.zip` do mesmo tipo (independente do ano eleitoral) são agregados em uma mesma pasta específica.
+
+A estrutura lógica do diretório resultante é mostrada abaixo:
+
+```text
+data/
+├── bem_candidato/
+│   ├── bem_candidato_2014.zip
+│   ├── bem_candidato_2018.zip
+│   └── bem_candidato_2022.zip
+├── consulta_cand/
+│   ├── consulta_cand_2014.zip
+│   ├── consulta_cand_2018.zip
+│   └── consulta_cand_2022.zip
+├── consulta_coligacao/
+│   └── ...
+├── motivo_cassacao/
+│   └── ...
+└── votacao_candidato_munzona/
+    ├── votacao_candidato_munzona_2014.zip
+    └── ...
+```
 
 ---
 
 ## 🚀 Como Executar Localmente
 
-Siga o passo a passo abaixo para configurar o ambiente e testar o script de ingestão.
+Siga as instruções abaixo para configurar o ambiente e executar a ingestão dos dados utilizando os novos parâmetros.
 
 ### Pré-requisitos
 * **Python** 3.10 ou superior.
-* Gerenciador de pacotes **[uv](https://github.com/astral-sh/uv)** instalado globalmente (recomendado para performance e isolamento simples).
+* Gerenciador de pacotes **[uv](https://github.com/astral-sh/uv)** instalado globalmente (recomendado para melhor performance).
 
-### 1. Clonar ou acessar o repositório
-Abra o seu terminal no diretório do projeto:
+### 1. Instalação e Configuração do Ambiente
+
+Abra o terminal no diretório do projeto:
 ```powershell
-cd d:/Projetos/tse-ingestao
-```
-
-### 2. Configurar o Ambiente Virtual e Dependências
-Você pode utilizar o ambiente virtual integrado `.venv`. Caso precise instalar as dependências requeridas (`requests` e `rich`):
-
-**Usando o `uv`:**
-```powershell
-# Cria o ambiente virtual caso não exista
+# Cria o ambiente virtual
 uv venv
 
 # Ativa o ambiente virtual
@@ -63,67 +100,63 @@ uv venv
 # No Linux/macOS:
 source .venv/bin/activate
 
-# Instala as dependências necessárias
-uv pip install requests rich
+# Instala a partir do requirements.txt
+uv pip install -r requirements.txt
 ```
 
-### 3. Executar o Script de Ingestão (CLI)
-Com as dependências instaladas e o ambiente virtual ativo, você pode rodar o script com diferentes parâmetros de ano e intervalo através da CLI suportada pelo `argparse`:
+### 2. Parâmetros e Argumentos de CLI
+
+O arquivo [main.py](file:///d:/Projetos/tse-ingestao/main.py) foi estendido para suportar a seleção flexível dos datasets via linha de comando:
 
 ```powershell
 uv run main.py [argumentos]
 ```
 
 #### Argumentos disponíveis:
-* `-i`, `--inicio` (int): Ano inicial a ser baixado (padrão: `2014`).
-* `-f`, `--fim` (int): Ano final a ser baixado (padrão: `2022`).
-* `--intervalo` (int): Passo/intervalo entre os anos (padrão: `2022`).
+* `-b`, `--base` (str): Define qual base de dados baixar. Opções válidas: `candidatos`, `bens_candidatos`, `coligacoes`, `motivo_cassacao`, `votacao_candidato_municipio_zona` ou `all` (padrão: `all`).
+* `-i`, `--inicio` (int): Ano inicial do intervalo eleitoral (padrão: `2014`).
+* `-f`, `--fim` (int): Ano final do intervalo eleitoral (padrão: `2022`).
+* `--intervalo` (int): Passo em anos entre as eleições a serem consideradas no download (padrão: `2`).
 
-#### Exemplos de uso:
-* **Execução padrão (baixa apenas o ano inicial `2014` devido ao intervalo de `2022`):**
+#### Exemplos práticos de uso:
+
+* **Download de todas as bases eleitorais de 2014 a 2022, a cada 2 anos:**
   ```powershell
-  uv run main.py
-  ```
-* **Baixar os anos eleitorais de 4 em 4 anos (2014, 2018, 2022):**
-  ```powershell
-  uv run main.py --inicio 2014 --fim 2022 --intervalo 4
-  ```
-* **Baixar apenas um ano específico (ex: 2022):**
-  ```powershell
-  uv run main.py --inicio 2022 --fim 2022
+  uv run main.py --base all --inicio 2014 --fim 2022 --intervalo 2
   ```
 
-Os arquivos resultantes serão salvos progressivamente no diretório `./data/`.
+* **Download de apenas a base de bens declarados por candidatos de 4 em 4 anos (2014, 2018, 2022):**
+  ```powershell
+  uv run main.py --base bens_candidatos --inicio 2014 --fim 2022 --intervalo 4
+  ```
+
+* **Download apenas do resultado de votação por município e zona do ano de 2020:**
+  ```powershell
+  uv run main.py --base votacao_candidato_municipio_zona --inicio 2020 --fim 2020
+  ```
 
 ---
 
-## 📊 Evidências da Primeira Execução (Código Original)
+## 📊 Evidências da Primeira Execução (Código Original de Referência)
 
-Abaixo estão as evidências de execuções do código original desenvolvido por **Teo Calvo**, obtidas durante os testes iniciais do script em seu estado atual. Estes dados servirão como linha de base (baseline) para avaliar e comprovar a eficácia de futuras otimizações de performance (como concorrência, paralelismo ou assincronismo).
+Abaixo estão mantidos os registros e imagens das execuções originais em formato sequencial para servir de linha de base (baseline) comparativa de desempenho:
 
-
-### 1. Execução da função `download_ano()`, apenas para o ano 2022:
-> [!NOTE]
-> **Versão de referência da execução:** `1d951ea` (Commit correspondente ao código original/baseline).
-
-![Download Ano 2022](md-images/execucao-download-2022.png)  
-*Execução da função download_ano(2022).*
-
-![Detalhes Execução Ano 2022](md-images/detalhes-execucao-download-2022.png)  
-*Detalhes do tempo de execução da função download_ano(2022).*
-
+### 1. Execução do download sequencial para o ano 2022:
 * **Tempo de Execução:** 5 minutos, 13 segundos e 2 décimos.  
 * **Data de Execução:** 29/07/2026 21:19:13 (GMT -03:00)
 
-### 2. Execução da função `download_anos()`, para os anos 2014, 2018 e 2022:
-> [!NOTE]
-> **Versão de referência da execução:** `1d951ea` (Commit correspondente ao código original/baseline).
+![Download Ano 2022](md-images/execucao-download-2022.png)  
+*Execução correspondente ao código original/baseline.*
 
-![Download Anos 2014, 2018 e 2022](md-images/execucao-download-2014_2018_2022.png)  
-*Execução da função download_anos(2014, 2018, 2022).*
+![Detalhes Execução Ano 2022](md-images/detalhes-execucao-download-2022.png)  
+*Detalhes do tempo de execução.*
 
-![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-2014_2018_2022.png)  
-*Detalhes do tempo de execução da função download_anos(2014, 2018, 2022).*
-
+### 2. Execução para os anos 2014, 2018 e 2022:
 * **Tempo de Execução:** 13 minutos, 29 segundos.  
 * **Data de Execução:** 29/07/2026 21:31:38 (GMT -03:00)
+
+![Download Anos 2014, 2018 e 2022](md-images/execucao-download-2014_2018_2022.png)  
+*Execução da função para os anos 2014, 2018 e 2022.*
+
+![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-2014_2018_2022.png)  
+*Tempo de execução sequencial das três edições eleitorais.*

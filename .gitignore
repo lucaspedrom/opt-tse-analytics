@@ -1,6 +1,7 @@
 *.zip
 *.csv
 *.pdf
+.venv/
 .env
 data/
 __pycache__/
