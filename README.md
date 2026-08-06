@@ -26,12 +26,14 @@ O projeto foi estruturado em submódulos para melhorar a manutenção e a reutil
 
 ### 1. Representação do Dataset: [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py)
 Introduzimos a classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7) contendo os metadados necessários para mapear os endpoints do TSE:
-* `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
 * `endpoint`: Caminho relativo da categoria de dados no servidor do TSE.
-* `arquivo`: String template com formatação do ano (`{nome}_{ano}.zip`).
+* `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
+* `arquivo_zip`: String template do arquivo compactado (`{nome}_{ano}.zip`).
+* `arquivo_csv`: String template do arquivo CSV de interesse (`{nome}_{ano}_BRASIL.csv`).
 * [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L13): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
+* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L22): Retorna o nome formatado do arquivo CSV de interesse.
 
-Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L23), com as bases disponíveis:
+Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L31), com as bases disponíveis:
 * `candidatos`
 * `bens_candidatos`
 * `coligacoes`
@@ -40,38 +42,38 @@ Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingesta
 
 ### 2. Otimização do Downloader: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
 A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L14) foi otimizada e agora dispõe de novas funções:
-* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L19): Efetua a requisição HTTP síncrona `GET` para uma base específica e salva o conteúdo no diretório de destino correspondente.
-* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L44): Itera em lote baixando **todas** as bases listadas no catálogo para a lista de anos informados, exibindo uma barra de progresso avançada no console (`rich.progress.Progress`).
-* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L61): Efetua o download focado em **apenas uma** base selecionada no catálogo para a lista de anos desejada.
+* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L22): Efetua o download do arquivo ZIP de forma temporária em um diretório temporário via streaming (chunks). Em seguida, extrai apenas o arquivo CSV de interesse (ex: `{nome}_{ano}_BRASIL.csv`) e o armazena no diretório de destino correspondente.
+* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L68): Itera em lote baixando **todas** as bases listadas no catálogo para a lista de anos informados, exibindo uma barra de progresso avançada no console (`rich.progress.Progress`).
+* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L85): Efetua o download focado em **apenas uma** base selecionada no catálogo para a lista de anos desejada.
 
 ---
 
 ## 📊 Disposição e Distribuição dos Dados
 
-A disposição física dos arquivos baixados no disco foi alterada para simplificar o agrupamento e facilitar o consumo posterior dos dados.
+A disposição física dos arquivos baixados no disco foi alterada para simplificar o agrupamento, economizar armazenamento local (evitando reter arquivos ZIP completos e desnecessários) e facilitar o consumo posterior dos dados.
 
-Anteriormente, os arquivos eram salvos organizados em diretórios baseados em seus respectivos anos eleitorais (ex: `./data/2022/`). 
+Agora, os arquivos ZIP são baixados em uma pasta temporária do sistema operacional, o arquivo de interesse contendo os dados consolidados do Brasil (ex: `*_BRASIL.csv`) é extraído, e o arquivo ZIP temporário é descartado. 
 
-Com o novo modelo estruturado, os dados são distribuídos **por conjunto de dados/endpoint**. Isso significa que todos os arquivos `.zip` do mesmo tipo (independente do ano eleitoral) são agregados em uma mesma pasta específica.
+Com o novo modelo estruturado, os dados são distribuídos **por conjunto de dados/endpoint** diretamente em arquivos `.csv`. Isso significa que todos os arquivos `.csv` do mesmo tipo (independente do ano eleitoral) são agregados em uma mesma pasta específica.
 
 A estrutura lógica do diretório resultante é mostrada abaixo:
 
 ```text
 data/
 ├── bem_candidato/
-│   ├── bem_candidato_2014.zip
-│   ├── bem_candidato_2018.zip
-│   └── bem_candidato_2022.zip
+│   ├── bem_candidato_2014_BRASIL.csv
+│   ├── bem_candidato_2018_BRASIL.csv
+│   └── bem_candidato_2022_BRASIL.csv
 ├── consulta_cand/
-│   ├── consulta_cand_2014.zip
-│   ├── consulta_cand_2018.zip
-│   └── consulta_cand_2022.zip
+│   ├── consulta_cand_2014_BRASIL.csv
+│   ├── consulta_cand_2018_BRASIL.csv
+│   └── consulta_cand_2022_BRASIL.csv
 ├── consulta_coligacao/
 │   └── ...
 ├── motivo_cassacao/
 │   └── ...
 └── votacao_candidato_munzona/
-    ├── votacao_candidato_munzona_2014.zip
+    ├── votacao_candidato_munzona_2014_BRASIL.csv
     └── ...
 ```
 

@@ -1,5 +1,6 @@
 import argparse
 import logging
+from rich.logging import RichHandler
 
 from src.downloader import DownloadTSE
 from src.datasets import DATASETS_CATALOG
@@ -8,7 +9,9 @@ if __name__ == "__main__":
     # Configura o logging básico para ver os logs do downloader
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s"
+        format="%(message)s",
+        datefmt= "[%X]",
+        handlers=[RichHandler(rich_tracebacks=True, show_path=False)]
     )
 
     parser = argparse.ArgumentParser(description="Baixar dados do TSE")

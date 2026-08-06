@@ -7,6 +7,9 @@ from itertools import product
 import logging
 from src.datasets import TSEDataset, DATASETS_CATALOG
 
+import tempfile
+import zipfile
+
 logger = logging.getLogger(__name__)
 
 DATA_PATH = "./data"
@@ -18,28 +21,52 @@ class DownloadTSE:
 
     def ingest_dataset_year(self, dataset: TSEDataset, ano:int):
         url = dataset.build_url(ano)
-        print(url)
         
-        # Definição dos nomes de arquivo, diretório de armazenamento e caminho completo destino.
-        nome_arquivo = dataset.arquivo.format(nome=dataset.nome, ano=ano)
-        diretorio_arquivo = Path(DATA_PATH) / dataset.endpoint
-        destino = diretorio_arquivo / nome_arquivo
-        
+        nome_arquivo_zip = dataset.arquivo_zip.format(nome=dataset.nome, ano=ano)
+
+        # Definição do nome de arquivo, diretório de armazenamento e caminho completo destino.
+        nome_arquivo_csv = dataset.build_csv_filename(ano)
+        diretorio_destino = Path(DATA_PATH) / dataset.endpoint # Nome da pasta de armazenamento local dos arquivos.
+        destino = diretorio_destino / nome_arquivo_csv # Destino completo da localização do arquivo.
+         
         # Verificação da existência do diretório para download do arquivo.
-        if not os.path.exists(diretorio_arquivo):
-            os.makedirs(diretorio_arquivo)  # Caso não exista, será criado.
-            print(f"Diretório {diretorio_arquivo} criado com sucesso.") 
+        if not os.path.exists(diretorio_destino):
+            os.makedirs(diretorio_destino)  # Caso não exista, será criado.
+            logger.info(f"Diretório {diretorio_destino} criado com sucesso.") 
         
-        # Requisição e Armazenamento.
-        response = requests.get(url)
-        if response.status_code == http.HTTPStatus.OK:
-            with open(destino, "wb") as f:
-                f.write(response.content)
-            logger.info(f"Arquivo {nome_arquivo} baixado com sucesso")
-            return True
-        
-        logger.error(f"Falha ao baixar o arquivo {nome_arquivo}. Status Code: {response.status_code}")
-        return False
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_zip_path = Path(temp_dir)/nome_arquivo_zip
+
+            # Requisição e Armazenamento.
+            response = requests.get(url, stream=True)
+            if response.status_code == http.HTTPStatus.OK:
+                # Gravação em chunks(streaming) para arquivos grandes
+                with open(temp_zip_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                logger.info(f"Arquivo {nome_arquivo_zip} acessado temporariamente.")
+                
+                # Descompactação do arquivo ZIP
+                with zipfile.ZipFile(temp_zip_path,"r") as zip_ref:
+                    # Lista com todos os nomes de arquivos dentro do ZIP
+                    arquivos_no_zip = zip_ref.namelist()
+
+                    # Procura pelo nome do arquivo de interesse _BRASIL_
+                    if nome_arquivo_csv in arquivos_no_zip:
+                        zip_ref.extract(nome_arquivo_csv, path=diretorio_destino)
+                        logger.info(f"Arquivo {nome_arquivo_csv} descompactado com sucesso")
+                        return True
+                    elif nome_arquivo_csv.upper() in arquivos_no_zip:
+                        zip_ref.extract(nome_arquivo_csv.upper(), path=diretorio_destino)
+                        logger.info(f"Arquivo {nome_arquivo_csv.upper()} descompactado com sucesso")
+                        return True
+                    else:
+                        logger.warning(f"Arquivo {nome_arquivo_csv} não encontrado no ZIP")
+                        return False
+            else:
+                logger.error(f"Falha ao acessar o ZIP {nome_arquivo_zip}. Status Code: {response.status_code}")
+                return False
             
     def ingest_all_datasets(self, anos:list):
         """
