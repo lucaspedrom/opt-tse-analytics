@@ -5,46 +5,54 @@ DEFAULT_BASE_URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/"
 
 @dataclass(frozen=True)
 class TSEDataset:
-    nome: str
     endpoint: str
-    arquivo:str # {nome}_{ano}.zip
+    nome: str
+    arquivo_zip: str = "{nome}_{ano}.zip" # Valor padrão
+    arquivo_csv: str = "{nome}_{ano}_BRASIL.csv" # Nome do arquivo de interesse (todos os dados do)
     base_url: str = DEFAULT_BASE_URL
 
     def build_url(self, ano:int) -> str:
-        """Monta a URL exata para um único endpoit de arquivo zip por ano."""
-        """Exemplo de url de endpoint: 
+        """Monta a URL exata para um único endpoit de arquivo zip por ano.
+            Exemplo de url de endpoint: 
             Real: https://cdn.tse.jus.br/estatistica/sead/odsele/processual/processo_eleitoral_2024.zip
-            Formatado: https://cdn.tse.jus.br/estatistica/sead/odsele/{endpoint}/{arquivo}.zip
+            Formatado: https://cdn.tse.jus.br/estatistica/sead/odsele/{endpoint}/{nome}_{ano}.zip
         """
-        arquivo = self.arquivo.format(nome=self.nome, ano=ano)
-        caminho = f"{self.endpoint}/{arquivo}"
+        arquivo_formatado = self.arquivo_zip.format(nome=self.nome, ano=ano)
+        caminho = f"{self.endpoint}/{arquivo_formatado}"
         return urljoin(self.base_url, caminho)
 
+    def build_csv_filename(self, ano: int) -> str:
+        return self.arquivo_csv.format(nome=self.nome, ano=ano)
+        
+
+"""
+    Exemplo de catálogo de uma URL.
+    URL: https://cdn.tse.jus.br/estatistica/sead/odsele/processual/processo_eleitoral_2024.zip
+    'processos':TSEDataset(
+        endpoint='processual',
+        nome='precesso_eleitoral'
+    )
+"""
 DATASETS_CATALOG = {
     "candidatos":TSEDataset(
-        nome='consulta_cand',        
-        endpoint='consulta_cand',        
-        arquivo='{nome}_{ano}.zip'        
+        endpoint='consulta_cand',       
+        nome='consulta_cand'    
     ),
     "bens_candidatos":TSEDataset(
-        nome='bem_candidato',
         endpoint='bem_candidato',
-        arquivo='{nome}_{ano}.zip'
+        nome='bem_candidato'
     ),
     "coligacoes":TSEDataset(
-        nome='consulta_coligacao',
         endpoint='consulta_coligacao',
-        arquivo='{nome}_{ano}.zip'
+        nome='consulta_coligacao'
     ),
     "motivo_cassacao":TSEDataset(
-        nome='motivo_cassacao',
         endpoint='motivo_cassacao',
-        arquivo='{nome}_{ano}.zip'
+        nome='motivo_cassacao'
     ),
     "votacao_candidato_municipio_zona":TSEDataset(
-        nome='votacao_candidato_munzona',
         endpoint='votacao_candidato_munzona',
-        arquivo='{nome}_{ano}.zip'
+        nome='votacao_candidato_munzona'
     )
 }
 
