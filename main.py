@@ -1,5 +1,6 @@
 import argparse
 import logging
+# pyrefly: ignore [missing-import]
 from rich.logging import RichHandler
 
 from src.downloader import DownloadTSE

@@ -2,10 +2,12 @@ from pathlib import Path
 import requests
 import os
 import http
+# pyrefly: ignore [missing-import]
 from rich.progress import Progress
 from itertools import product
 import logging
 from src.datasets import TSEDataset, DATASETS_CATALOG
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tempfile
 import zipfile
@@ -67,23 +69,34 @@ class DownloadTSE:
             else:
                 logger.error(f"Falha ao acessar o ZIP {nome_arquivo_zip}. Status Code: {response.status_code}")
                 return False
-            
+
+    def _execute_batch_download(self, etapas:list, max_workers: int = 4):
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Iniciando downloads...", total=len(etapas))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submissão das tarefas às threads.
+                futuros = {
+                    executor.submit(self.ingest_dataset_year, dataset, ano): (dataset,ano)
+                    for dataset, ano in etapas
+                }
+                for futuro in as_completed(futuros):
+                    dataset, ano = futuros[futuro]
+                    try:
+                        futuro.result()
+                    except Exception as e:
+                        logger.error(f"Erro ao baixar {dataset.nome} ({ano}): {e}")
+                    finally:
+                        progress.advance(task)
+
     def ingest_all_datasets(self, anos:list):
         """
         Baixa todos os datasets disponíveis para uma lista de anos.
         Args:
             anos (list): Lista de anos para o qual os datasets devem ser baixados.
         """
-
+        
         etapas = list(product(DATASETS_CATALOG.values(), anos))
-
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Iniciando downloads...", total=len(etapas))
-
-            for dataset, ano in etapas:
-                progress.update(task, description=f"[bold blue]Baixando[/bold blue] {dataset.nome} ({ano})")
-                self.ingest_dataset_year(dataset, ano)
-                progress.advance(task)
+        self._execute_batch_download(etapas)
 
     def ingest_one_dataset(self, dataset: TSEDataset, anos:list):
         """
@@ -94,12 +107,5 @@ class DownloadTSE:
         """
 
         etapas = list(product([dataset], anos))
-
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Iniciando downloads...", total=len(etapas))
-
-            for dataset, ano in etapas:
-                progress.update(task, description=f"[bold blue]Baixando[/bold blue] {dataset.nome} ({ano})")
-                self.ingest_dataset_year(dataset, ano)
-                progress.advance(task)
-
+        self._execute_batch_download(etapas)
+        
