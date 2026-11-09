@@ -1,8 +1,8 @@
 import argparse
 import logging
-# pyrefly: ignore [missing-import]
-from rich.logging import RichHandler
 
+from rich.logging import RichHandler
+from src.console import console
 from src.downloader import DownloadTSE
 from src.datasets import DATASETS_CATALOG
 
@@ -12,7 +12,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(message)s",
         datefmt= "[%X]",
-        handlers=[RichHandler(rich_tracebacks=True, show_path=False)]
+        handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)]
     )
 
     parser = argparse.ArgumentParser(description="Baixar dados do TSE")

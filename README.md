@@ -17,8 +17,8 @@ O projeto foi estruturado em submódulos para melhorar a manutenção e a reutil
 
 - [main.py](file:///d:/Projetos/tse-ingestao/main.py): Ponto de entrada do script que atua como Interface de Linha de Comando (CLI), interpretando argumentos fornecidos no terminal e inicializando o fluxo de downloads.
 - [src/](file:///d:/Projetos/tse-ingestao/src): Diretório contendo a lógica interna do projeto:
-  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7), que encapsula as configurações de cada conjunto de dados e constrói as URLs de download, além de definir o [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L23).
-  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L14), responsável por realizar as requisições HTTP, gerenciar a criação das pastas e orquestrar os fluxos de download.
+  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7), que encapsula as configurações de cada conjunto de dados e constrói as URLs de download, além de definir o [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L36).
+  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L20), responsável por realizar as requisições HTTP persistentes com connection pooling, gerenciar a criação das pastas e orquestrar os fluxos de download concorrentes.
 
 ---
 
@@ -30,10 +30,10 @@ Introduzimos a classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-in
 * `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
 * `arquivo_zip`: String template do arquivo compactado (`{nome}_{ano}.zip`).
 * `arquivo_csv`: String template do arquivo CSV de interesse (`{nome}_{ano}_BRASIL.csv`).
-* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L13): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
-* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L22): Retorna o nome formatado do arquivo CSV de interesse.
+* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L14): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
+* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L24): Retorna o nome formatado do arquivo CSV de interesse.
 
-Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L31), com as bases disponíveis:
+Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L36), com as bases disponíveis:
 * `candidatos`
 * `bens_candidatos`
 * `coligacoes`
@@ -41,10 +41,18 @@ Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingesta
 * `votacao_candidato_municipio_zona`
 
 ### 2. Otimização do Downloader: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
-A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L14) foi otimizada e agora dispõe de novas funções:
-* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L22): Efetua o download do arquivo ZIP de forma temporária em um diretório temporário via streaming (chunks). Em seguida, extrai apenas o arquivo CSV de interesse (ex: `{nome}_{ano}_BRASIL.csv`) e o armazena no diretório de destino correspondente.
-* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L68): Itera em lote baixando **todas** as bases listadas no catálogo para a lista de anos informados, exibindo uma barra de progresso avançada no console (`rich.progress.Progress`).
-* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L85): Efetua o download focado em **apenas uma** base selecionada no catálogo para a lista de anos desejada.
+A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L20) foi otimizada e agora dispõe de novas funções e técnicas de alta performance:
+* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L25): Efetua o download do arquivo ZIP de forma temporária em streaming (chunks de 8 KB) utilizando sessão HTTP persistente. Extrai seletivamente apenas o arquivo CSV consolidado (`{nome}_{ano}_BRASIL.csv`) para o diretório de destino correspondente e descarta o ZIP temporário.
+* [_execute_batch_download](file:///d:/Projetos/tse-ingestao/src/downloader.py#L77): Método privado orquestrador baseado no princípio DRY. Gerencia um pool de conexões persistentes (`requests.Session` com `HTTPAdapter`) e submete os downloads em paralelo utilizando `concurrent.futures.ThreadPoolExecutor` (com limite de 4 workers), exibindo uma barra de progresso avançada e reativa (`rich.progress.Progress` com `as_completed`).
+* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L103): Gera o produto cartesiano entre todas as bases do catálogo e os anos selecionados, delegando o processamento concorrente ao `_execute_batch_download`.
+* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L113): Efetua o download focado em apenas uma base selecionada para a lista de anos informada, também executando de forma concorrente via `_execute_batch_download`.
+
+### 3. Técnicas de Otimização e Performance Implementadas
+
+* **Extração Seletiva em Streaming:** Download via streaming (chunks de 8 KB) para um diretório temporário (`tempfile.TemporaryDirectory`), extraindo exclusivamente o arquivo consolidado nacional (`*_BRASIL.csv`) e descartando o arquivo compactado bruto, evitando o acúmulo desnecessário de arquivos ZIP no disco.
+* **Concorrência com `ThreadPoolExecutor`:** Orquestração concorrente de múltiplos downloads simultâneos (limitados a 4 *workers*), impedindo que o tempo de espera de rede de um dataset bloqueie os demais e consumindo eventos com `as_completed`.
+* **Reaproveitamento de Conexões HTTP (Connection Pooling):** Implementação de `requests.Session()` com `HTTPAdapter(pool_connections=4, pool_maxsize=4)`, reaproveitando conexões TCP/TLS com o CDN do TSE (`cdn.tse.jus.br`) e eliminando custos repetidos de handshake de rede.
+* **Arquitetura DRY (Don't Repeat Yourself):** Centralização de toda a lógica concorrente e gerenciamento de contexto no método privado `_execute_batch_download`, garantindo reutilização de código tanto para download global quanto por base específica.
 
 ---
 
@@ -122,9 +130,9 @@ uv run main.py [argumentos]
 
 #### Exemplos práticos de uso:
 
-* **Download de todas as bases eleitorais de 2014 a 2022, a cada 2 anos:**
+* **Download de todas as bases eleitorais de 2014 a 2024, a cada 2 anos:**
   ```powershell
-  uv run main.py --base all --inicio 2014 --fim 2022 --intervalo 2
+  uv run main.py --base all --inicio 2014 --fim 2024 --intervalo 2
   ```
 
 * **Download de apenas a base de bens declarados por candidatos de 4 em 4 anos (2014, 2018, 2022):**
@@ -162,3 +170,13 @@ Abaixo estão mantidos os registros e imagens das execuções originais em forma
 
 ![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-2014_2018_2022.png)  
 *Tempo de execução sequencial das três edições eleitorais.*
+
+### 3. Nova Execução para os anos 2014, 2018 e 2022:
+* **Tempo de Execução:** 39 segundos.
+* **Data de Execução:** 09/11/2026 17:50:59 (GMT -03:00)
+
+![Novos Downloads - Anos 2014, 2018 e 2022](md-images/execucao-download-novo-2014_2018_2022.png)  
+*Execução da nova versão da função(09/11/2026) para os anos 2014, 2018 e 2022.*
+
+![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-novo-2014_2018_2022.png)  
+*Tempo de execução sequencial das três edições eleitorais na versão do dia 09/11/2026.*

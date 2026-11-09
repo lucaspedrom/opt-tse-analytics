@@ -10,6 +10,7 @@ class TSEDataset:
     arquivo_zip: str = "{nome}_{ano}.zip" # Valor padrão
     arquivo_csv: str = "{nome}_{ano}_BRASIL.csv" # Nome do arquivo de interesse (todos os dados do)
     base_url: str = DEFAULT_BASE_URL
+    peso: int = 1 # Tamanho estimado para priorização
 
     def build_url(self, ano:int) -> str:
         """Monta a URL exata para um único endpoit de arquivo zip por ano.
@@ -36,23 +37,28 @@ class TSEDataset:
 DATASETS_CATALOG = {
     "candidatos":TSEDataset(
         endpoint='consulta_cand',       
-        nome='consulta_cand'    
+        nome='consulta_cand',
+        peso = 300    
     ),
     "bens_candidatos":TSEDataset(
         endpoint='bem_candidato',
-        nome='bem_candidato'
+        nome='bem_candidato',
+        peso = 250
     ),
     "coligacoes":TSEDataset(
         endpoint='consulta_coligacao',
-        nome='consulta_coligacao'
+        nome='consulta_coligacao',
+        peso = 50
     ),
     "motivo_cassacao":TSEDataset(
         endpoint='motivo_cassacao',
-        nome='motivo_cassacao'
+        nome='motivo_cassacao',
+        peso = 5
     ),
     "votacao_candidato_municipio_zona":TSEDataset(
         endpoint='votacao_candidato_munzona',
-        nome='votacao_candidato_munzona'
+        nome='votacao_candidato_munzona',
+        peso = 1000
     )
 }
 
