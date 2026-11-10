@@ -1,9 +1,15 @@
-from pathlib import Path
 import requests
-from requests.adapters import HTTPAdapter
 import os
 import http
-# pyrefly: ignore [missing-import]
+import tempfile
+import zipfile
+import logging
+import time
+from pathlib import Path
+from requests.adapters import HTTPAdapter
+from itertools import product
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib3.util import Retry
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -12,14 +18,8 @@ from rich.progress import (
     DownloadColumn,
     TransferSpeedColumn
     )
-from itertools import product
-import logging
 from src.datasets import TSEDataset, DATASETS_CATALOG
 from src.console import console
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import tempfile
-import zipfile
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,15 @@ class DownloadTSE:
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
 
-    def ingest_dataset_year(self, dataset: TSEDataset, ano:int, session: requests.Session, progress: Progress = None):
+    def ingest_dataset_year(
+        self, 
+        dataset: TSEDataset, 
+        ano:int, 
+        session: requests.Session, 
+        progress: Progress = None,
+        max_retries: int = 3,
+        backoff_factor: float = 2.0
+    ):
         # Monta a URL de Download.
         url = dataset.build_url(ano)
         # Formata e monta o nome do arquivo ZIP de Download.
@@ -51,33 +59,63 @@ class DownloadTSE:
 
             try:             
                 # Requisição e Armazenamento.
-                with session.get(url, stream=True, timeout=(15, 300)) as response:
-                    if response.status_code != http.HTTPStatus.OK:
-                        logger.error(f"Falha ao acessar o ZIP {nome_arquivo_zip}. Status Code: {response.status_code}")
-                        return False
+                for tentativa in range(1, max_retries + 1):
+                    try:
+                        espera = backoff_factor * (2 ** (tentativa-1))
+                        with session.get(url, stream=True, timeout=(15, 300)) as response:
+                            if response.status_code == http.HTTPStatus.NOT_FOUND:
+                                logger.error(f"Arquivo {nome_arquivo_zip} não encontrado no servidor (404).")
+                                return False
+
+                            if response.status_code != http.HTTPStatus.OK:
+                                logger.warning(f"Tentativa {tentativa}/{max_retries} falhou para {nome_arquivo_zip}. Status Code: {response.status_code}")
+                                if tentativa < max_retries:
+                                    time.sleep(espera)
+                                    continue
+                                return False
+                            
+                            # Obtenção do tamanho total do arquivo, em bytes, para uso na Barra de Progresso.
+                            content_length = response.headers.get("content-length") # Tamanho, em bytes, do arquivo requisitado.
+                            total_bytes = int(content_length) if content_length else None
+
+                            if progress:
+                                if task_id is None:
+                                    task_id = progress.add_task(f"[cyan]{nome_arquivo_zip}", total=total_bytes)
+                                else:
+                                    progress.reset(task_id, total=total_bytes)
+
+                            # Gravação em chunks(streaming) para arquivos grandes
+                            with open(temp_zip_path, "wb") as f:
+                                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                                    if chunk:
+                                        f.write(chunk)
+                                        if progress and task_id is not None:
+                                            progress.advance(task_id, advance=len(chunk))
+
+                            # Verificação de Integridade
+                            tamanho_baixado = temp_zip_path.stat().st_size
+                            if total_bytes and tamanho_baixado < total_bytes:
+                                logger.warning(f"Download incompleto de {nome_arquivo_zip} na tentativa {tentativa}/{max_retries}: Recebidos {tamanho_baixado} de {total_bytes} bytes.")
+                                if tentativa < max_retries:
+                                    time.sleep(espera)
+                                    continue
+                                else:
+                                    logger.error(f"Falha definitiva ao baixar {nome_arquivo_zip}: arquivo incompleto após {max_retries} tentativas.")
+                                    return False
+
+                            logger.info(f"Arquivo {nome_arquivo_zip} baixado com sucesso temporariamente.")
+                            sucess_download = True
+                            break
                     
-                    # Obtenção do tamanho total do arquivo, em bytes, para uso na Barra de Progresso.
-                    content_length = response.headers.get("content-length") # Tamanho, em bytes, do arquivo requisitado.
-                    total_bytes = int(content_length) if content_length else None
-
-                    if progress:
-                        task_id = progress.add_task(f"[cyan]{nome_arquivo_zip}", total=total_bytes)
-
-                    # Gravação em chunks(streaming) para arquivos grandes
-                    with open(temp_zip_path, "wb") as f:
-                        for chunk in response.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                f.write(chunk)
-                                if progress and task_id is not None:
-                                    progress.advance(task_id, advance=len(chunk))
-
-                    tamanho_baixado = temp_zip_path.stat().st_size
-                    if total_bytes and tamanho_baixado < total_bytes:
-                        logger.error(f"Download incompleto de {nome_arquivo_zip}: Recebidos {tamanho_baixado} de {total_bytes} bytes.")
-                        return False
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"Erro de conexão na tentativa {tentativa}/{max_retries} de {nome_arquivo_zip}: {e}")
+                        if tentativa < max_retries:
+                            time.sleep(espera)
+                            continue
+                        else:
+                            logger.error(f"Falha definitiva de conexão para {nome_arquivo_zip} após {max_retries} tentativas.")
+                            return False
                     
-                    logger.info(f"Arquivo {nome_arquivo_zip} acessado temporariamente.")
-                    sucess_download = True
 
                 # Descompactação do arquivo. 
                 if sucess_download: 
@@ -106,10 +144,17 @@ class DownloadTSE:
                     progress.remove_task(task_id)
                 
     def _execute_batch_download(self, etapas:list, max_workers: int = 4):
+        retry_strategy = Retry(
+            total= 3,
+            backoff_factor=2,
+            status_forcelist=[425, 429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET"]
+        )
         with requests.Session() as session:
             adapter = HTTPAdapter(
                 pool_connections=max_workers,
-                pool_maxsize=max_workers
+                pool_maxsize=max_workers,
+                max_retries=retry_strategy
             )
             session.mount("https://", adapter)
             session.mount("http://", adapter)
