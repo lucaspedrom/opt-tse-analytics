@@ -20,6 +20,7 @@ from rich.progress import (
 )
 from src.datasets import TSEDataset, DATASETS_CATALOG
 from src.console import console
+from src.converter import convert_zip_to_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +47,13 @@ class DownloadTSE:
         nome_arquivo_zip = dataset.arquivo_zip.format(nome=dataset.nome, ano=ano)
         # Definição do nome de arquivo, diretório de armazenamento e caminho completo destino.
         nome_arquivo_csv = dataset.build_csv_filename(ano)
-        # Nome da pasta de armazenamento local dos arquivos.
-        diretorio_destino = Path(DATA_PATH) / dataset.endpoint
-
-        # Verificação da existência do diretório para download do arquivo.
-        diretorio_destino.mkdir(parents=True, exist_ok=True)
+        # Nome do destino de armazenamento dos arquivos parquet.
+        caminho_parquet = dataset.build_parquet_filename(DATA_PATH, ano)
 
         # Inicia a abertura de um diretório temporário para operações subsequentes.
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_zip_path = (
-                Path(temp_dir) / nome_arquivo_zip
-            )  # Nome do diretório temporário.
-            sucess_download = False  # Variável indicadora de operação do download.
+            temp_zip_path = (Path(temp_dir) / nome_arquivo_zip)     # Nome do diretório temporário.
+            sucess_download = False                                 # Variável indicadora de operação do download.
             task_id = None
 
             try:
@@ -150,34 +146,15 @@ class DownloadTSE:
                     if progress and task_id is not None:
                         progress.update(
                             task_id,
-                            description=f"[yellow]Descompactando {nome_arquivo_zip}...",
+                            description=f"[yellow]Convertendo {nome_arquivo_zip} -> Parquet...",
                         )
 
-                    with zipfile.ZipFile(temp_zip_path, "r") as zip_ref:
-                        # Lista com todos os nomes de arquivos dentro do ZIP
-                        arquivos_no_zip = zip_ref.namelist()
-
-                        # Procura pelo nome do arquivo de interesse _BRASIL_
-                        if nome_arquivo_csv in arquivos_no_zip:
-                            zip_ref.extract(nome_arquivo_csv, path=diretorio_destino)
-                            logger.info(
-                                f"Arquivo {nome_arquivo_csv} descompactado com sucesso"
-                            )
-                            return True
-                        elif nome_arquivo_csv.upper() in arquivos_no_zip:
-                            zip_ref.extract(
-                                nome_arquivo_csv.upper(), path=diretorio_destino
-                            )
-                            logger.info(
-                                f"Arquivo {nome_arquivo_csv.upper()} descompactado com sucesso"
-                            )
-                            return True
-                        else:
-                            logger.warning(
-                                f"Arquivo {nome_arquivo_csv} não encontrado no ZIP"
-                            )
-                            return False
-
+                    sucesso = convert_zip_to_parquet(
+                        zip_path=temp_zip_path,
+                        target_csv_name=nome_arquivo_csv,
+                        output_parquet_path=caminho_parquet
+                    )
+                    return sucesso
             finally:
                 if progress and task_id is not None:
                     progress.remove_task(task_id)

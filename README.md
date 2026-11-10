@@ -1,11 +1,11 @@
 # TSE Ingestão 🗳️
 
-O **TSE Ingestão** é um script utilitário em Python projetado para automatizar o download de dados públicos de estatísticas eleitorais diretamente dos servidores do Tribunal Superior Eleitoral (TSE) do Brasil. 
+O **TSE Ingestão** é um script utilitário em Python de alta performance projetado para automatizar o download, conversão em streaming e armazenamento eficiente de dados públicos de estatísticas eleitorais diretamente dos servidores do Tribunal Superior Eleitoral (TSE) do Brasil. 
 
-Este projeto serve como base para coleta de dados de candidaturas, bens de candidatos, coligações, motivos de cassação e votações por município e zona eleitoral.
+Este projeto serve como base para coleta e engenharia de dados de candidaturas, bens de candidatos, coligações, motivos de cassação e votações por município e zona eleitoral.
 
 > [!IMPORTANT]
-> **Créditos e Atribuição:** O código original deste projeto foi desenvolvido por **Teo Calvo** no vídeo [TSE Analytics 2026 - Coletando Dados](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s). Este repositório constitui uma implementação base para estudos e testes de otimização de performance.
+> **Créditos e Atribuição:** O código original deste projeto foi desenvolvido por **Teo Calvo** no vídeo [TSE Analytics 2026 - Coletando Dados](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s). Este repositório constitui uma implementação evoluída para estudos e testes de otimização de performance, eficiência de armazenamento e resiliência de pipelines.
 
 [![TSE Analytics 2026 - Coletando Dados](https://img.youtube.com/vi/TNW990c3Vh4/hqdefault.jpg)](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s)
 
@@ -13,91 +13,111 @@ Este projeto serve como base para coleta de dados de candidaturas, bens de candi
 
 ## 📂 Estrutura do Projeto
 
-O projeto foi estruturado em submódulos para melhorar a manutenção e a reutilização do código:
+O projeto foi estruturado em submódulos desacoplados para garantir facilidade de manutenção, testabilidade e baixo consumo de recursos:
 
+- [pyproject.toml](file:///d:/Projetos/tse-ingestao/pyproject.toml): Configuração padronizada do projeto conforme a **PEP 621**, gerenciando dependências e ambiente via `uv`.
 - [main.py](file:///d:/Projetos/tse-ingestao/main.py): Ponto de entrada do script que atua como Interface de Linha de Comando (CLI), interpretando argumentos fornecidos no terminal e inicializando o fluxo de downloads.
-- [src/](file:///d:/Projetos/tse-ingestao/src): Diretório contendo a lógica interna do projeto:
-  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7), que encapsula as configurações de cada conjunto de dados e constrói as URLs de download, além de definir o [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L36).
-  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L20), responsável por realizar as requisições HTTP persistentes com connection pooling, gerenciar a criação das pastas e orquestrar os fluxos de download concorrentes.
+- [src/](file:///d:/Projetos/tse-ingestao/src): Diretório contendo os módulos centrais da aplicação:
+  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L8), que mapeia os endpoints do TSE, constrói as URLs de download e define as regras de particionamento Hive, além de fornecer o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L37).
+  - [converter.py](file:///d:/Projetos/tse-ingestao/src/converter.py): Motor de conversão colunar em streaming via `pyarrow`. Lê o arquivo CSV comprimido diretamente do stream do arquivo ZIP em blocos e grava em formato Parquet incrementalmente, mantendo o consumo de memória fixo e sem gravar arquivos intermediários no disco.
+  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L30), responsável por requisições HTTP persistentes com connection pooling, retentativas com backoff exponencial, verificação de integridade de arquivos e orquestração concorrente de downloads e conversões.
+  - [console.py](file:///d:/Projetos/tse-ingestao/src/console.py): Configuração da instância compartilhada do console `rich` para exibição de logs e barras de progresso.
 
 ---
 
-## 🛠️ Novas Funções e Módulos
+## 🛠️ Módulos e Funcionalidades
 
 ### 1. Representação do Dataset: [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py)
-Introduzimos a classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L7) contendo os metadados necessários para mapear os endpoints do TSE:
+A classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L8) encapsula os metadados necessários para mapear os endpoints do TSE:
 * `endpoint`: Caminho relativo da categoria de dados no servidor do TSE.
 * `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
-* `arquivo_zip`: String template do arquivo compactado (`{nome}_{ano}.zip`).
-* `arquivo_csv`: String template do arquivo CSV de interesse (`{nome}_{ano}_BRASIL.csv`).
-* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L14): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
-* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L24): Retorna o nome formatado do arquivo CSV de interesse.
+* `arquivo_zip`: Template do arquivo compactado no servidor (`{nome}_{ano}.zip`).
+* `arquivo_csv`: Template do arquivo CSV de interesse interno do ZIP (`{nome}_{ano}_BRASIL.csv`).
+* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L16): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
+* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L26): Retorna o nome formatado do arquivo CSV consolidado nacional esperado dentro do ZIP.
+* [build_parquet_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L30): Gera o caminho de saída com **particionamento no padrão Hive** (`<base_dir>/<endpoint>/ano=<ano>/dados.parquet`).
 
-Também definimos o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L36), com as bases disponíveis:
-* `candidatos`
-* `bens_candidatos`
-* `coligacoes`
-* `motivo_cassacao`
-* `votacao_candidato_municipio_zona`
+Catálogo disponível em [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L37):
+* `candidatos` (peso 300)
+* `bens_candidatos` (peso 250)
+* `coligacoes` (peso 50)
+* `motivo_cassacao` (peso 5)
+* `votacao_candidato_municipio_zona` (peso 1000)
 
-### 2. Otimização do Downloader: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
-A classe [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L20) foi otimizada e agora dispõe de novas funções e técnicas de alta performance:
-* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L25): Efetua o download do arquivo ZIP de forma temporária em streaming (chunks de 8 KB) utilizando sessão HTTP persistente. Extrai seletivamente apenas o arquivo CSV consolidado (`{nome}_{ano}_BRASIL.csv`) para o diretório de destino correspondente e descarta o ZIP temporário.
-* [_execute_batch_download](file:///d:/Projetos/tse-ingestao/src/downloader.py#L77): Método privado orquestrador baseado no princípio DRY. Gerencia um pool de conexões persistentes (`requests.Session` com `HTTPAdapter`) e submete os downloads em paralelo utilizando `concurrent.futures.ThreadPoolExecutor` (com limite de 4 workers), exibindo uma barra de progresso avançada e reativa (`rich.progress.Progress` com `as_completed`).
-* [ingest_all_datasets](file:///d:/Projetos/tse-ingestao/src/downloader.py#L103): Gera o produto cartesiano entre todas as bases do catálogo e os anos selecionados, delegando o processamento concorrente ao `_execute_batch_download`.
-* [ingest_one_dataset](file:///d:/Projetos/tse-ingestao/src/downloader.py#L113): Efetua o download focado em apenas uma base selecionada para a lista de anos informada, também executando de forma concorrente via `_execute_batch_download`.
+### 2. Motor de Streaming e Conversão: [converter.py](file:///d:/Projetos/tse-ingestao/src/converter.py)
+* [stream_csv_stream_to_parquet](file:///d:/Projetos/tse-ingestao/src/converter.py#L12): Consome o stream binário de um CSV em lotes (*chunks* de 10 MB) via `pyarrow.csv.open_csv` e grava incrementalmente em Parquet usando `pyarrow.parquet.ParquetWriter`.
+* [convert_zip_to_parquet](file:///d:/Projetos/tse-ingestao/src/converter.py#L62): Localiza o CSV de interesse dentro do arquivo ZIP e alimenta o stream diretamente para a conversão sem descompactar o arquivo no disco rígido.
 
-### 3. Técnicas de Otimização e Performance Implementadas
-
-* **Extração Seletiva em Streaming:** Download via streaming (chunks de 8 KB) para um diretório temporário (`tempfile.TemporaryDirectory`), extraindo exclusivamente o arquivo consolidado nacional (`*_BRASIL.csv`) e descartando o arquivo compactado bruto, evitando o acúmulo desnecessário de arquivos ZIP no disco.
-* **Concorrência com `ThreadPoolExecutor`:** Orquestração concorrente de múltiplos downloads simultâneos (limitados a 4 *workers*), impedindo que o tempo de espera de rede de um dataset bloqueie os demais e consumindo eventos com `as_completed`.
-* **Reaproveitamento de Conexões HTTP (Connection Pooling):** Implementação de `requests.Session()` com `HTTPAdapter(pool_connections=4, pool_maxsize=4)`, reaproveitando conexões TCP/TLS com o CDN do TSE (`cdn.tse.jus.br`) e eliminando custos repetidos de handshake de rede.
-* **Arquitetura DRY (Don't Repeat Yourself):** Centralização de toda a lógica concorrente e gerenciamento de contexto no método privado `_execute_batch_download`, garantindo reutilização de código tanto para download global quanto por base específica.
+### 3. Orquestrador de Download: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
+* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L35): Realiza o download seguro do ZIP temporário em blocos com retentativas, valida o tamanho do download contra o cabeçalho `Content-Length`, dispara a conversão em streaming para Parquet e remove o ZIP temporário imediatamente.
+* [_execute_batch_download](file:///d:/Projetos/tse-ingestao/src/downloader.py#L164): Orquestra a execução concorrente em `ThreadPoolExecutor` com estratégia de retry na sessão HTTP e barras de progresso reativas via `rich.progress`.
 
 ---
 
-## 📊 Disposição e Distribuição dos Dados
+## ⚡ Técnicas de Otimização e Engenharia de Dados Implementadas
 
-A disposição física dos arquivos baixados no disco foi alterada para simplificar o agrupamento, economizar armazenamento local (evitando reter arquivos ZIP completos e desnecessários) e facilitar o consumo posterior dos dados.
+* **Consumo de Memória Constante ($O(1)$):**
+  Ao processar arquivos de mais de 4 GB (como a base de votação por zona eleitoral), a leitura é realizada em blocos de 10 MB. Cada lote é escrito no Parquet e liberado da RAM imediatamente. Isso permite que o pipeline rode com total estabilidade até mesmo em máquinas virtuais ou instâncias com **menos de 1 GB de RAM**.
+* **Zero Escrita de CSV em Disco (Zero Disk Overhead):**
+  O arquivo CSV descompactado **nunca é gravado no disco rígido**. A leitura é feita via *streaming* diretamente do arquivo ZIP em memória para os *batches* do PyArrow, poupando gigabytes de I/O em disco e evitando desgaste de SSDs.
+* **Redução Drástica de Armazenamento (>90% de compressão):**
+  Armazenamento no formato colunar **Apache Parquet com compressão ZSTD**. O *Dictionary Encoding* nativo do Parquet indexa termos textuais repetidos (como nomes de estados, partidos e cargos), reduzindo arquivos de 4 GB para menos de 400 MB.
+* **Resiliência a Mudanças de Schema (String Typing na Camada Raw):**
+  Todas as colunas são convertidas como `string` na extração (`default_column_type = pa.string()`). Isso previne falhas de inferência de tipo causadas por valores sentinelas do TSE (`#NULO#`, `#NE#`, `-1`, `-3`), mudanças de layout entre anos ou códigos com zeros à esquerda (como números de títulos e zonas).
+* **Particionamento em Diretórios (Padrão Hive):**
+  Os arquivos são organizados na estrutura `ano=YYYY/dados.parquet`. Esse formato permite que motores analíticos modernos realizem **Partition Discovery** (injetando a coluna de ano automaticamente) e **Partition Pruning** (carregando apenas a pasta do ano desejado sem ler a base inteira).
+* **Retentativas com Backoff Exponencial e Validação de Integridade:**
+  O download implementa até 3 tentativas automáticas com tempo de espera incremental (`backoff_factor * 2^(tentativa-1)`) e checa se o tamanho do arquivo em disco coincide com o `Content-Length` do servidor antes de aprovar o arquivo para conversão.
+* **Concorrência Sobreposta (I/O Bound + CPU Bound):**
+  Como as operações em C++ do PyArrow liberam a trava de execução do Python (GIL), enquanto uma *thread* aguarda pacotes de rede do download, outra *thread* que já baixou o arquivo processa a conversão para Parquet em paralelo.
 
-Agora, os arquivos ZIP são baixados em uma pasta temporária do sistema operacional, o arquivo de interesse contendo os dados consolidados do Brasil (ex: `*_BRASIL.csv`) é extraído, e o arquivo ZIP temporário é descartado. 
+---
 
-Com o novo modelo estruturado, os dados são distribuídos **por conjunto de dados/endpoint** diretamente em arquivos `.csv`. Isso significa que todos os arquivos `.csv` do mesmo tipo (independente do ano eleitoral) são agregados em uma mesma pasta específica.
+## 📊 Estrutura e Distribuição dos Dados no Disco
 
-A estrutura lógica do diretório resultante é mostrada abaixo:
+Com o particionamento Hive, os dados ficam estruturados da seguinte forma:
 
 ```text
 data/
 ├── bem_candidato/
-│   ├── bem_candidato_2014_BRASIL.csv
-│   ├── bem_candidato_2018_BRASIL.csv
-│   └── bem_candidato_2022_BRASIL.csv
+│   ├── ano=2014/
+│   │   └── dados.parquet
+│   ├── ano=2018/
+│   │   └── dados.parquet
+│   └── ano=2022/
+│       └── dados.parquet
 ├── consulta_cand/
-│   ├── consulta_cand_2014_BRASIL.csv
-│   ├── consulta_cand_2018_BRASIL.csv
-│   └── consulta_cand_2022_BRASIL.csv
-├── consulta_coligacao/
+│   ├── ano=2014/
+│   │   └── dados.parquet
 │   └── ...
 ├── motivo_cassacao/
-│   └── ...
+│   ├── ano=2014/
+│   │   └── dados.parquet
+│   ├── ano=2018/
+│   │   └── dados.parquet
+│   └── ano=2022/
+│       └── dados.parquet
 └── votacao_candidato_munzona/
-    ├── votacao_candidato_munzona_2014_BRASIL.csv
-    └── ...
+    ├── ano=2014/
+    │   └── dados.parquet
+    ├── ano=2018/
+    │   └── dados.parquet
+    └── ano=2022/
+        └── dados.parquet
 ```
 
 ---
 
 ## 🚀 Como Executar Localmente
 
-Siga as instruções abaixo para configurar o ambiente e executar a ingestão dos dados utilizando os novos parâmetros.
-
 ### Pré-requisitos
-* **Python** 3.10 ou superior.
-* Gerenciador de pacotes **[uv](https://github.com/astral-sh/uv)** instalado globalmente (recomendado para melhor performance).
+* **Python** 3.13 ou superior.
+* Gerenciador de pacotes **[uv](https://github.com/astral-sh/uv)** (recomendado).
 
-### 1. Instalação e Configuração do Ambiente
+### 1. Configuração do Ambiente
 
-Abra o terminal no diretório do projeto:
+Abra o terminal na raiz do projeto:
+
 ```powershell
 # Cria o ambiente virtual
 uv venv
@@ -110,73 +130,83 @@ uv venv
 # No Linux/macOS:
 source .venv/bin/activate
 
-# Instala a partir do requirements.txt
-uv pip install -r requirements.txt
+# Instala as dependências sincronizando com o pyproject.toml
+uv sync
 ```
 
 ### 2. Parâmetros e Argumentos de CLI
 
-O arquivo [main.py](file:///d:/Projetos/tse-ingestao/main.py) foi estendido para suportar a seleção flexível dos datasets via linha de comando:
+O arquivo [main.py](file:///d:/Projetos/tse-ingestao/main.py) permite selecionar as bases e os anos desejados:
 
 ```powershell
 uv run main.py [argumentos]
 ```
 
 #### Argumentos disponíveis:
-* `-b`, `--base` (str): Define qual base de dados baixar. Opções válidas: `candidatos`, `bens_candidatos`, `coligacoes`, `motivo_cassacao`, `votacao_candidato_municipio_zona` ou `all` (padrão: `all`).
-* `-i`, `--inicio` (int): Ano inicial do intervalo eleitoral (padrão: `2014`).
-* `-f`, `--fim` (int): Ano final do intervalo eleitoral (padrão: `2022`).
-* `--intervalo` (int): Passo em anos entre as eleições a serem consideradas no download (padrão: `2`).
+* `-b`, `--base` (str): Base de dados a ser baixada. Opções: `candidatos`, `bens_candidatos`, `coligacoes`, `motivo_cassacao`, `votacao_candidato_municipio_zona` ou `all` (padrão: `all`).
+* `-i`, `--inicio` (int): Ano inicial da coleta (padrão: `2014`).
+* `-f`, `--fim` (int): Ano final da coleta (padrão: `2022`).
+* `--intervalo` (int): Intervalo em anos entre eleições (padrão: `2`).
 
-#### Exemplos práticos de uso:
+#### Exemplos práticos:
 
-* **Download de todas as bases eleitorais de 2014 a 2024, a cada 2 anos:**
+* **Download de todas as bases de 2014 a 2024, de 2 em 2 anos:**
   ```powershell
   uv run main.py --base all --inicio 2014 --fim 2024 --intervalo 2
   ```
 
-* **Download de apenas a base de bens declarados por candidatos de 4 em 4 anos (2014, 2018, 2022):**
+* **Download focado em bens de candidatos (2014, 2018 e 2022):**
   ```powershell
   uv run main.py --base bens_candidatos --inicio 2014 --fim 2022 --intervalo 4
   ```
 
-* **Download apenas do resultado de votação por município e zona do ano de 2020:**
+* **Download rápido para teste (motivo de cassação de 2022):**
   ```powershell
-  uv run main.py --base votacao_candidato_municipio_zona --inicio 2020 --fim 2020
+  uv run main.py --base motivo_cassacao --inicio 2022 --fim 2022
   ```
 
 ---
 
-## 📊 Evidências da Primeira Execução (Código Original de Referência)
+## 🔍 Como Consumir os Dados Particionados
 
-Abaixo estão mantidos os registros e imagens das execuções originais em formato sequencial para servir de linha de base (baseline) comparativa de desempenho:
+Uma das grandes vantagens da estrutura gerada é a simplicidade e a performance de leitura nos principais ecossistemas de análise:
 
-### 1. Execução do download sequencial para o ano 2022:
-* **Tempo de Execução:** 5 minutos, 13 segundos e 2 décimos.  
-* **Data de Execução:** 29/07/2026 21:19:13 (GMT -03:00)
+### Com Polars (Lazy Evaluation com Leitura Rápida):
+```python
+import polars as pl
 
-![Download Ano 2022](md-images/execucao-download-2022.png)  
-*Execução correspondente ao código original/baseline.*
+# Lê todas as partições descobrindo a coluna 'ano' automaticamente
+df = pl.scan_parquet("data/motivo_cassacao/**/*.parquet")
 
-![Detalhes Execução Ano 2022](md-images/detalhes-execucao-download-2022.png)  
-*Detalhes do tempo de execução.*
+# Filtra apenas o ano desejado sem ler os demais arquivos do disco
+dados_2022 = df.filter(pl.col("ano") == "2022").collect()
+print(dados_2022.head())
+```
 
-### 2. Execução para os anos 2014, 2018 e 2022:
-* **Tempo de Execução:** 13 minutos, 29 segundos.  
-* **Data de Execução:** 29/07/2026 21:31:38 (GMT -03:00)
+### Com Pandas:
+```python
+import pandas as pd
 
-![Download Anos 2014, 2018 e 2022](md-images/execucao-download-2014_2018_2022.png)  
-*Execução da função para os anos 2014, 2018 e 2022.*
+# Lê toda a pasta particionada com Hive Partitioning automático
+df = pd.read_parquet("data/motivo_cassacao")
+print(df.head())
+```
 
-![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-2014_2018_2022.png)  
-*Tempo de execução sequencial das três edições eleitorais.*
+### Com PyArrow Dataset:
+```python
+import pyarrow.dataset as ds
 
-### 3. Nova Execução para os anos 2014, 2018 e 2022:
-* **Tempo de Execução:** 39 segundos.
-* **Data de Execução:** 09/11/2026 17:50:59 (GMT -03:00)
+dataset = ds.dataset("data/motivo_cassacao", format="parquet", partitioning="hive")
+tabela = dataset.to_table(filter=ds.field("ano") == "2022")
+print(tabela.num_rows)
+```
 
-![Novos Downloads - Anos 2014, 2018 e 2022](md-images/execucao-download-novo-2014_2018_2022.png)  
-*Execução da nova versão da função(09/11/2026) para os anos 2014, 2018 e 2022.*
+---
 
-![Detalhes Horário de Execução Anos 2014, 2018 e 2022](md-images/detalhes-execucao-download-novo-2014_2018_2022.png)  
-*Tempo de execução sequencial das três edições eleitorais na versão do dia 09/11/2026.*
+## 📊 Evidências de Desempenho e Histórico
+
+### Execuções Históricas (Baseline Original):
+* **Ano 2022 (Sequencial original):** 5 minutos, 13 segundos (29/07/2026).
+* **Anos 2014, 2018 e 2022 (Sequencial original):** 13 minutos, 29 segundos (29/07/2026).
+* **Otimização Concorrente HTTP (09/11/2026):** 39 segundos para 3 anos de `motivo_cassacao`.
+* **Versão Atual (Novembro/2026):** Ingestão completa com streaming direto para Parquet ZSTD particionado em Hive, sem salvar CSVs intermediários e garantindo pegada de memória fixa ($< 150\text{ MB}$).

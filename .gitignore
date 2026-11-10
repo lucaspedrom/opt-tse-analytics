@@ -1,8 +1,10 @@
 *.zip
 *.csv
 *.pdf
+*.parquet
 .venv/
 .env
 data/
 **/__pycache__/
 *.py[cod]
+.ruff_cache/
