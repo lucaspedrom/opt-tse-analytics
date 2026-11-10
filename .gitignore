@@ -4,4 +4,5 @@
 .venv/
 .env
 data/
-__pycache__/
+**/__pycache__/
+*.py[cod]
