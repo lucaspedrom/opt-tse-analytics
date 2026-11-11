@@ -1,7 +1,7 @@
 [project]
 name = "tse-ingestao"
-version = "0.1.0"
-description = "Script Eficiente e Ágil de Ingestão de dados do TSE."
+version = "0.3.0"
+description = "Pipeline de alta performance para ingestão, streaming e conversão analítica de dados do TSE."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

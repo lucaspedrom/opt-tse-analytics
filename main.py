@@ -2,9 +2,10 @@ import argparse
 import logging
 
 from rich.logging import RichHandler
+
 from src.console import console
-from src.downloader import DownloadTSE
 from src.datasets import DATASETS_CATALOG
+from src.downloader import DownloadTSE
 
 if __name__ == "__main__":
     # Configura o logging básico para ver os logs do downloader

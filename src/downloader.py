@@ -1,26 +1,27 @@
-import requests
-import os
 import http
-import tempfile
-import zipfile
 import logging
+import os
+import tempfile
 import time
-from pathlib import Path
-from requests.adapters import HTTPAdapter
-from itertools import product
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib3.util import Retry
+from itertools import product
+from pathlib import Path
+
+import requests
+from requests.adapters import HTTPAdapter
 from rich.progress import (
+    BarColumn,
+    DownloadColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
-    BarColumn,
-    DownloadColumn,
     TransferSpeedColumn,
 )
-from src.datasets import TSEDataset, DATASETS_CATALOG
+from urllib3.util import Retry
+
 from src.console import console
 from src.converter import convert_zip_to_parquet
+from src.datasets import DATASETS_CATALOG, TSEDataset
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +53,10 @@ class DownloadTSE:
 
         # Inicia a abertura de um diretório temporário para operações subsequentes.
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_zip_path = (Path(temp_dir) / nome_arquivo_zip)     # Nome do diretório temporário.
-            sucess_download = False                                 # Variável indicadora de operação do download.
+            temp_zip_path = (
+                Path(temp_dir) / nome_arquivo_zip
+            )  # Nome do diretório temporário.
+            sucess_download = False  # Variável indicadora de operação do download.
             task_id = None
 
             try:
@@ -152,7 +155,7 @@ class DownloadTSE:
                     sucesso = convert_zip_to_parquet(
                         zip_path=temp_zip_path,
                         target_csv_name=nome_arquivo_csv,
-                        output_parquet_path=caminho_parquet
+                        output_parquet_path=caminho_parquet,
                     )
                     return sucesso
             finally:
@@ -175,30 +178,32 @@ class DownloadTSE:
             session.mount("https://", adapter)
             session.mount("http://", adapter)
 
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description}"),
-                BarColumn(),
-                DownloadColumn(),
-                TransferSpeedColumn(),
-                console=console,
-            ) as progress:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # Submissão das tarefas às threads.
-                    futuros = {
-                        executor.submit(
-                            self.ingest_dataset_year, dataset, ano, session, progress
-                        ): (dataset, ano)
-                        for dataset, ano in etapas
-                    }
-                    for futuro in as_completed(futuros):
-                        dataset, ano = futuros[futuro]
-                        try:
-                            futuro.result()
-                        except Exception as e:
-                            logger.error(f"Erro ao baixar {dataset.nome} ({ano}): {e}")
-                        finally:
-                            logger.info(f"Concluído: {dataset.nome} ({ano})")
+            with (
+                Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold blue]{task.description}"),
+                    BarColumn(),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    console=console,
+                ) as progress,
+                ThreadPoolExecutor(max_workers=max_workers) as executor,
+            ):
+                # Submissão das tarefas às threads.
+                futuros = {
+                    executor.submit(
+                        self.ingest_dataset_year, dataset, ano, session, progress
+                    ): (dataset, ano)
+                    for dataset, ano in etapas
+                }
+                for futuro in as_completed(futuros):
+                    dataset, ano = futuros[futuro]
+                    try:
+                        futuro.result()
+                    except Exception as e:
+                        logger.error(f"Erro ao baixar {dataset.nome} ({ano}): {e}")
+                    finally:
+                        logger.info(f"Concluído: {dataset.nome} ({ano})")
 
     def ingest_all_datasets(self, anos: list):
         """

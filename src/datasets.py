@@ -1,15 +1,18 @@
 from dataclasses import dataclass
-from urllib.parse import urljoin
 from pathlib import Path
+from urllib.parse import urljoin
 
 DEFAULT_BASE_URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/"
+
 
 @dataclass(frozen=True)
 class TSEDataset:
     endpoint: str
     nome: str
     arquivo_zip: str = "{nome}_{ano}.zip"  # Nome arquivo ZIP
-    arquivo_csv: str = "{nome}_{ano}_BRASIL.csv"  # Nome do arquivo geral para descompactar
+    arquivo_csv: str = (
+        "{nome}_{ano}_BRASIL.csv"  # Nome do arquivo geral para descompactar
+    )
     base_url: str = DEFAULT_BASE_URL
     peso: int = 1  # Tamanho estimado para priorização
 
@@ -34,6 +37,7 @@ class TSEDataset:
         """
         return Path(base_dir) / self.endpoint / f"ano={ano}" / "dados.parquet"
 
+
 """
     Exemplo de catálogo de uma URL.
     URL: https://cdn.tse.jus.br/estatistica/sead/odsele/processual/processo_eleitoral_2024.zip
@@ -43,24 +47,15 @@ class TSEDataset:
     )
 """
 DATASETS_CATALOG = {
-    "candidatos": TSEDataset(
-        endpoint="consulta_cand", 
-        nome="consulta_cand", 
-        peso=300),
+    "candidatos": TSEDataset(endpoint="consulta_cand", nome="consulta_cand", peso=300),
     "bens_candidatos": TSEDataset(
-        endpoint="bem_candidato", 
-        nome="bem_candidato", 
-        peso=250
+        endpoint="bem_candidato", nome="bem_candidato", peso=250
     ),
     "coligacoes": TSEDataset(
-        endpoint="consulta_coligacao", 
-        nome="consulta_coligacao", 
-        peso=50
+        endpoint="consulta_coligacao", nome="consulta_coligacao", peso=50
     ),
     "motivo_cassacao": TSEDataset(
-        endpoint="motivo_cassacao", 
-        nome="motivo_cassacao", 
-        peso=5
+        endpoint="motivo_cassacao", nome="motivo_cassacao", peso=5
     ),
     "votacao_candidato_municipio_zona": TSEDataset(
         endpoint="votacao_candidato_munzona",
