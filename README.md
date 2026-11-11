@@ -362,9 +362,6 @@ print(tabela.num_rows)
 
 ```text
 opt-tse-analytics/
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # Pipeline de CI (Lint e Formatação com Ruff)
 ├── md-images/                  # Registros visuais das evidências de performance
 ├── src/                        # Núcleo modular da aplicação
 │   ├── __init__.py             # Inicialização do pacote Python
