@@ -1,81 +1,127 @@
 # TSE Ingestão 🗳️
 
-O **TSE Ingestão** é um script utilitário em Python de alta performance projetado para automatizar o download, conversão em streaming e armazenamento eficiente de dados públicos de estatísticas eleitorais diretamente dos servidores do Tribunal Superior Eleitoral (TSE) do Brasil. 
+<div align="center">
 
-Este projeto serve como base para coleta e engenharia de dados de candidaturas, bens de candidatos, coligações, motivos de cassação e votações por município e zona eleitoral.
+![Versão](https://img.shields.io/badge/versão-0.3.0-blue.svg?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Apache Arrow](https://img.shields.io/badge/PyArrow-26.0%2B-E5462C?style=for-the-badge)
+![Apache Parquet](https://img.shields.io/badge/Apache_Parquet-ZSTD-50C878?style=for-the-badge)
+![Hive Partitioning](https://img.shields.io/badge/Particionamento-Hive-FFD700?style=for-the-badge)
+![uv](https://img.shields.io/badge/Gerenciador-uv-DE5FE9?style=for-the-badge)
+![CLI](https://img.shields.io/badge/CLI-Rich-00D4AA?style=for-the-badge)
+![Licença](https://img.shields.io/badge/Licen%C3%A7a-MIT-green.svg?style=for-the-badge)
+
+<p align="center">
+  <b>Pipeline de alta performance para extração, streaming em memória e conversão analítica dos dados do Tribunal Superior Eleitoral.</b><br>
+  <i>Desenvolvido com foco em eficiência: zero escrita de CSV bruto em disco, consumo de memória constante O(1) e redução de armazenamento superior a 97%.</i>
+</p>
+
+[Visão Geral](#-visão-geral) •
+[Arquitetura do Pipeline](#-arquitetura-do-pipeline) •
+[Otimizações de Engenharia](#-técnicas-de-otimização-e-engenharia-de-dados) •
+[Evidências & Benchmarks](#-evidências-de-performance-e-histórico-de-evolução) •
+[Como Executar](#-como-executar-localmente) •
+[Consumo Analítico](#-como-consumir-os-dados-particionados) •
+[Estrutura](#-estrutura-de-diretórios) •
+[Licença](#-licença)
+
+</div>
+
+---
+
+## 📖 Visão Geral
+
+O **TSE Ingestão** é um utilitário em Python de engenharia de dados projetado para automatizar o download concorrente, conversão em streaming direto e armazenamento analítico de bases públicas de estatísticas eleitorais disponibilizadas pelo Tribunal Superior Eleitoral (TSE).
+
+O projeto é voltado para a coleta e estruturação de candidaturas, bens declarados, coligações, motivos de cassação e votações nominais por município e zona eleitoral.
 
 > [!IMPORTANT]
-> **Créditos e Atribuição:** O código original deste projeto foi desenvolvido por **Teo Calvo** no vídeo [TSE Analytics 2026 - Coletando Dados](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s). Este repositório constitui uma implementação evoluída para estudos e testes de otimização de performance, eficiência de armazenamento e resiliência de pipelines.
+> **Créditos e Atribuição:** O código base deste projeto foi concebido por **Teo Calvo** no vídeo [TSE Analytics 2026 - Coletando Dados](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s). Este repositório representa uma implementação evoluída com foco em otimização de performance de rede, streaming colunar em memória e resiliência de pipelines de dados.
 
 [![TSE Analytics 2026 - Coletando Dados](https://img.youtube.com/vi/TNW990c3Vh4/hqdefault.jpg)](https://www.youtube.com/watch?v=TNW990c3Vh4&t=2222s)
 
 ---
 
-## 📂 Estrutura do Projeto
+## 🏛️ Arquitetura do Pipeline
 
-O projeto foi estruturado em submódulos desacoplados para garantir facilidade de manutenção, testabilidade e baixo consumo de recursos:
+O fluxo de dados foi desenhado para eliminar gargalos de I/O em disco e consumo excessivo de memória RAM através de um pipeline de streaming colunar com PyArrow:
 
-- [pyproject.toml](file:///d:/Projetos/tse-ingestao/pyproject.toml): Configuração padronizada do projeto conforme a **PEP 621**, gerenciando dependências e ambiente via `uv`.
-- [main.py](file:///d:/Projetos/tse-ingestao/main.py): Ponto de entrada do script que atua como Interface de Linha de Comando (CLI), interpretando argumentos fornecidos no terminal e inicializando o fluxo de downloads.
-- [src/](file:///d:/Projetos/tse-ingestao/src): Diretório contendo os módulos centrais da aplicação:
-  - [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py): Contém a classe [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L8), que mapeia os endpoints do TSE, constrói as URLs de download e define as regras de particionamento Hive, além de fornecer o catálogo [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L37).
-  - [converter.py](file:///d:/Projetos/tse-ingestao/src/converter.py): Motor de conversão colunar em streaming via `pyarrow`. Lê o arquivo CSV comprimido diretamente do stream do arquivo ZIP em blocos e grava em formato Parquet incrementalmente, mantendo o consumo de memória fixo e sem gravar arquivos intermediários no disco.
-  - [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py): Contém a classe principal [DownloadTSE](file:///d:/Projetos/tse-ingestao/src/downloader.py#L30), responsável por requisições HTTP persistentes com connection pooling, retentativas com backoff exponencial, verificação de integridade de arquivos e orquestração concorrente de downloads e conversões.
-  - [console.py](file:///d:/Projetos/tse-ingestao/src/console.py): Configuração da instância compartilhada do console `rich` para exibição de logs e barras de progresso.
-
----
-
-## 🛠️ Módulos e Funcionalidades
-
-### 1. Representação do Dataset: [datasets.py](file:///d:/Projetos/tse-ingestao/src/datasets.py)
-A classe de dados imutável [TSEDataset](file:///d:/Projetos/tse-ingestao/src/datasets.py#L8) encapsula os metadados necessários para mapear os endpoints do TSE:
-* `endpoint`: Caminho relativo da categoria de dados no servidor do TSE.
-* `nome`: Prefixo do arquivo a ser baixado (ex: `consulta_cand`).
-* `arquivo_zip`: Template do arquivo compactado no servidor (`{nome}_{ano}.zip`).
-* `arquivo_csv`: Template do arquivo CSV de interesse interno do ZIP (`{nome}_{ano}_BRASIL.csv`).
-* [build_url](file:///d:/Projetos/tse-ingestao/src/datasets.py#L16): Constrói a URL absoluta concatenando a URL base padrão com o endpoint específico do conjunto de dados e o ano desejado.
-* [build_csv_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L26): Retorna o nome formatado do arquivo CSV consolidado nacional esperado dentro do ZIP.
-* [build_parquet_filename](file:///d:/Projetos/tse-ingestao/src/datasets.py#L30): Gera o caminho de saída com **particionamento no padrão Hive** (`<base_dir>/<endpoint>/ano=<ano>/dados.parquet`).
-
-Catálogo disponível em [DATASETS_CATALOG](file:///d:/Projetos/tse-ingestao/src/datasets.py#L37):
-* `candidatos` (peso 300)
-* `bens_candidatos` (peso 250)
-* `coligacoes` (peso 50)
-* `motivo_cassacao` (peso 5)
-* `votacao_candidato_municipio_zona` (peso 1000)
-
-### 2. Motor de Streaming e Conversão: [converter.py](file:///d:/Projetos/tse-ingestao/src/converter.py)
-* [stream_csv_stream_to_parquet](file:///d:/Projetos/tse-ingestao/src/converter.py#L12): Consome o stream binário de um CSV em lotes (*chunks* de 10 MB) via `pyarrow.csv.open_csv` e grava incrementalmente em Parquet usando `pyarrow.parquet.ParquetWriter`.
-* [convert_zip_to_parquet](file:///d:/Projetos/tse-ingestao/src/converter.py#L62): Localiza o CSV de interesse dentro do arquivo ZIP e alimenta o stream diretamente para a conversão sem descompactar o arquivo no disco rígido.
-
-### 3. Orquestrador de Download: [downloader.py](file:///d:/Projetos/tse-ingestao/src/downloader.py)
-* [ingest_dataset_year](file:///d:/Projetos/tse-ingestao/src/downloader.py#L35): Realiza o download seguro do ZIP temporário em blocos com retentativas, valida o tamanho do download contra o cabeçalho `Content-Length`, dispara a conversão em streaming para Parquet e remove o ZIP temporário imediatamente.
-* [_execute_batch_download](file:///d:/Projetos/tse-ingestao/src/downloader.py#L164): Orquestra a execução concorrente em `ThreadPoolExecutor` com estratégia de retry na sessão HTTP e barras de progresso reativas via `rich.progress`.
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                 Servidores do TSE (CDN)                     │
+│    https://cdn.tse.jus.br/estatistica/sead/odsele/...       │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTP GET (Streaming Chunks)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 DownloadTSE (Connection Pool)              │
+│  • Requests Session + HTTPAdapter                           │
+│  • Concorrência via ThreadPoolExecutor                      │
+│  • Retentativas com Backoff Exponencial                     │
+│  • Validação de integridade via Content-Length              │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Stream Binário ZIP em Memória
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│           Motor de Conversão Streaming (PyArrow)            │
+│  • ZipFile.open(target_csv) -> Stream sem extrair no disco  │
+│  • Leitura em Batches de 10 MB (Consumo de RAM constante)   │
+│  • Resiliência de Schema: Default Column String             │
+│  • Encoding Categórico (Dictionary Encoding)                │
+│  • Compressão colunar Zstandard (ZSTD)                      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Escrita incremental colunar
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Data Lake Local (Particionamento Hive)         │
+│  data/<endpoint>/ano=YYYY/dados.parquet                     │
+│  • Partition Pruning & Partition Discovery imediato         │
+│  • Redução de ~11,5 GB para ~281 MB (-97,5%)                │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## ⚡ Técnicas de Otimização e Engenharia de Dados Implementadas
+## ⚡ Técnicas de Otimização e Engenharia de Dados
 
 * **Consumo de Memória Constante ($O(1)$):**
-  Ao processar arquivos de mais de 4 GB (como a base de votação por zona eleitoral), a leitura é realizada em blocos de 10 MB. Cada lote é escrito no Parquet e liberado da RAM imediatamente. Isso permite que o pipeline rode com total estabilidade até mesmo em máquinas virtuais ou instâncias com **menos de 1 GB de RAM**.
+  Ao processar arquivos massivos de mais de 4 GB (como a base de votação por zona eleitoral), a leitura é fatiada em blocos de 10 MB. Cada lote é convertido para Parquet e liberado imediatamente da RAM, permitindo estabilidade mesmo em instâncias com **menos de 512 MB de RAM**.
 * **Zero Escrita de CSV em Disco (Zero Disk Overhead):**
-  O arquivo CSV descompactado **nunca é gravado no disco rígido**. A leitura é feita via *streaming* diretamente do arquivo ZIP em memória para os *batches* do PyArrow, poupando gigabytes de I/O em disco e evitando desgaste de SSDs.
+  O arquivo CSV descompactado **nunca toca o disco rígido**. A leitura é consumida em streaming do arquivo ZIP diretamente para os buffers de memória do PyArrow, poupando gigabytes de I/O e desgaste em SSDs.
 * **Redução Drástica de Armazenamento (>97% de compressão):**
-  Armazenamento no formato colunar **Apache Parquet com compressão ZSTD**. O *Dictionary Encoding* nativo do Parquet indexa termos textuais repetidos (como nomes de estados, partidos e cargos), reduzindo a base de votação de **~11,5 GB em CSV para apenas ~281 MB em Parquet**.
+  Gravação colunar em **Apache Parquet com compressão ZSTD**. O *Dictionary Encoding* nativo do Parquet indexa colunas categóricas redundantes (como UF, partidos e cargos), reduzindo a base de testes de **~11,5 GB em CSV para apenas ~281 MB em Parquet**.
 * **Resiliência a Mudanças de Schema (String Typing na Camada Raw):**
-  Todas as colunas são convertidas como `string` na extração (`default_column_type = pa.string()`). Isso previne falhas de inferência de tipo causadas por valores sentinelas do TSE (`#NULO#`, `#NE#`, `-1`, `-3`), mudanças de layout entre anos ou códigos com zeros à esquerda (como números de títulos e zonas).
+  Todas as colunas são convertidas como `string` na ingestão bruta (`default_column_type = pa.string()`). Isso previne quebras geradas por valores sentinelas do TSE (`#NULO#`, `#NE#`, `-1`, `-3`), mudanças de layout entre anos ou códigos com zeros à esquerda (zonas eleitorais e títulos).
 * **Particionamento em Diretórios (Padrão Hive):**
-  Os arquivos são organizados na estrutura `ano=YYYY/dados.parquet`. Esse formato permite que motores analíticos modernos realizem **Partition Discovery** (injetando a coluna de ano automaticamente) e **Partition Pruning** (carregando apenas a pasta do ano desejado sem ler a base inteira).
+  Estrutura organizada em `ano=YYYY/dados.parquet`. Permite que ferramentas como Polars, DuckDB e PySpark executem **Partition Discovery** (injetando a coluna `ano` automaticamente) e **Partition Pruning** (carregando apenas as pastas dos anos consultados sem ler o dataset inteiro).
 * **Retentativas com Backoff Exponencial e Validação de Integridade:**
-  O download implementa até 3 tentativas automáticas com tempo de espera incremental (`backoff_factor * 2^(tentativa-1)`) e checa se o tamanho do arquivo em disco coincide com o `Content-Length` do servidor antes de aprovar o arquivo para conversão.
+  Implementação de até 3 tentativas automáticas com tempo de espera incremental (`backoff_factor * 2^(tentativa-1)`) e checagem de tamanho de arquivo contra o cabeçalho `Content-Length`.
 * **Concorrência Sobreposta (I/O Bound + CPU Bound):**
-  Como as operações em C++ do PyArrow liberam a trava de execução do Python (GIL), enquanto uma *thread* aguarda pacotes de rede do download, outra *thread* que já baixou o arquivo processa a conversão para Parquet em paralelo.
+  As operações de conversão em C++ do PyArrow liberam a trava do Python (GIL). Enquanto uma thread aguarda pacotes de rede do download, outra converte lotes para Parquet em paralelo.
+
+---
+
+## 🛠️ Tecnologias Utilizadas
+
+### Engenharia de Dados & Armazenamento Colunar
+- **[PyArrow](https://arrow.apache.org/docs/python/)**: Motor colunar em C++ para streaming em blocos, parsing de delimitadores e geração de Parquet.
+- **[Apache Parquet](https://parquet.apache.org/)**: Formato colunar analítico otimizado para consultas analíticas rápidas.
+- **[Zstandard (ZSTD)](https://facebook.github.io/zstd/)**: Algoritmo de alta taxa de compressão e velocidade extrema de descompressão.
+
+### Rede, Concorrência & CLI
+- **[Python 3.13+](https://www.python.org/)**: Linguagem base do projeto com suporte a tipagem moderna.
+- **[Requests](https://requests.readthedocs.io/) & [Urllib3](https://urllib3.readthedocs.io/)**: Pool de conexões HTTP persistentes e estratégias de retry.
+- **[Rich](https://rich.readthedocs.io/)**: Interface rica de terminal com barras de progresso reativas por thread e logs organizados.
+
+### Tooling, Gerenciamento & Qualidade
+- **[uv](https://docs.astral.sh/uv/)**: Gerenciador ultrarrápido de dependências e ambientes virtuais em conformidade com PEP 621.
+- **[Ruff](https://docs.astral.sh/ruff/)**: Linter e formatador de código de alto desempenho em Rust.
 
 ---
 
 ## 📊 Estrutura e Distribuição dos Dados no Disco
 
-Com o particionamento Hive, os dados ficam estruturados da seguinte forma:
+Os dados consolidados são gravados com particionamento Hive:
 
 ```text
 data/
@@ -120,6 +166,7 @@ data/
 Para demonstrar o impacto prático de cada etapa de otimização, mantemos o histórico comparativo entre a implementação original (baseline sequencial), a otimização de rede concorrente e a versão atual com streaming direto para Parquet particionado.
 
 Todas as execuções das Fases 2 e 3 foram realizadas sob as mesmas condições, requisitando **todas as 5 bases de dados** para os anos de **2014, 2018 e 2022** (15 datasets completos):
+
 ```powershell
 uv run main.py -b all -i 2014 -f 2022 --intervalo 4
 ```
@@ -132,7 +179,7 @@ uv run main.py -b all -i 2014 -f 2022 --intervalo 4
 | **Estratégia de Download** | Sequencial (1 thread) | Concorrente (`ThreadPoolExecutor`) | Concorrente com Connection Pooling e Retries |
 | **Armazenamento no Disco** | CSVs Brutos Descompactados | CSVs Brutos Descompactados | **Parquet ZSTD Particionado (Hive)** |
 | **Escrita Temporária** | ZIP + CSV extraído no disco | ZIP + CSV extraído no disco | **Zero CSV em disco (Stream direto do ZIP)** |
-| **Tempo Total (15 bases)** | Inviável / > 1 hora | **39 segundos** | **1 minuto e 27 segundos (87s)** |
+| **Tempo Total (15 bases)** | 13 minutos e 29 segundos | **39 segundos** | **1 minuto e 27 segundos (87s)** |
 | **Volume de Dados em Disco**| ~11,5 GB em CSV | **~11,5 GB em CSV** | **~281 MB em Parquet (97,5% menor!)** |
 | **Processamento Analítico** | Nenhum (texto cru) | Nenhum (apenas extração) | **Parsing de 26M+ linhas, tipagem e compressão ZSTD** |
 | **Memória RAM Necessária** | Variável / Elevada | Variável / Elevada | **Fixa e Constante ($< 150\text{ MB}$)** |
@@ -141,30 +188,30 @@ uv run main.py -b all -i 2014 -f 2022 --intervalo 4
 
 ### ⚖️ Análise do Trade-off de Performance: Por que o tempo passou de 39s para 87s?
 
-Ao comparar a **Fase 2 (39s)** com a **Fase 3 (87s)**, observa-se um acréscimo de 48 segundos no tempo total de execução. Esse comportamento é **esperado e intencional**, decorrente da profunda mudança no trabalho realizado pela CPU:
+Ao comparar a **Fase 2 (39s)** com a **Fase 3 (87s)**, observa-se um acréscimo de 48 segundos no tempo total de execução. Esse comportamento é **esperado e intencional**, decorrente da profunda mudança no trabalho computacional:
 
 1. **O que a Fase 2 fazia (39s):**
-   * Realizava o download e apenas executava a extração direta dos bytes do ZIP para o disco rígido (`zipfile.ZipFile.extract()`).
-   * A CPU praticamente não realizava trabalho computacional: nenhum caractere de texto era lido, analisado ou transformado.
-   * **Custo colateral:** Despejou **11,5 GB** de arquivos de texto cru no disco do usuário, inviabilizando consultas analíticas rápidas no futuro e sobrecarregando o armazenamento.
+   - Realizava o download e apenas executava a extração direta dos bytes do ZIP para o disco rígido (`zipfile.ZipFile.extract()`).
+   - A CPU não realizava trabalho analítico: nenhum caractere era lido, interpretado ou comprimido.
+   - **Custo colateral:** Despejou **11,5 GB** de arquivos de texto cru no disco, sobrecarregando o armazenamento e postergando o custo de processamento.
 
 2. **O que a Fase 3 faz (87s):**
-   * Além de baixar os mesmos dados, a CPU agora atua como um motor de processamento analítico em tempo real:
+   - Além de baixar os mesmos dados, a CPU agora atua como um motor de processamento analítico em tempo real:
      - Consome o stream binário de **26+ milhões de linhas** de texto.
-     - Efetua o *parse* de delimitadores, aspas e decodificação de caracteres (`latin1`).
+     - Efetua o *parse* de delimitadores, aspas e decodificação (`latin1`).
      - Constrói tabelas colunares Apache Arrow em memória em lotes estritos de 10 MB.
      - Executa *Dictionary Encoding* para colunas categóricas e calcula estatísticas de metadados (*min/max* por bloco).
      - Comprime todos os blocos com o algoritmo **Zstandard (ZSTD)** e organiza os dados em partições Hive.
-   * **O Ganho Obtido:** Por um custo único de apenas **48 segundos adicionais** no pipeline de extração:
+   - **O Ganho Obtido:** Por um custo único de apenas **48 segundos adicionais** no pipeline:
      - O armazenamento total caiu de **11.500 MB para 281 MB (economia de 97,5%)**.
      - Eliminou-se o desgaste de gravação de 11,5 GB em disco rígido.
-     - As futuras leituras analíticas (em Polars, Pandas ou PySpark) tornaram-se até **50 vezes mais rápidas**, pois não precisam mais parsear gigabytes de texto linha por linha.
+     - As futuras leituras analíticas (em Polars, Pandas ou DuckDB) tornaram-se até **50 vezes mais rápidas**, pois não precisam mais parsear gigabytes de texto linha por linha.
 
 ---
 
 ### Fase 1: Execuções Baseline (29/07/2026)
 
-Execução original com código sequencial, sem reaproveitamento de conexões e gerando CSVs brutos:
+Execução original sequencial, sem reaproveitamento de conexões e gerando CSVs brutos:
 
 #### 1. Download sequencial para o ano de 2022:
 * **Tempo de Execução:** 5 minutos, 13 segundos e 2 décimos.  
@@ -221,7 +268,7 @@ Evolução com streaming em memória, sem extração de CSV intermediário em di
 *Log de execução processando todas as bases, convertendo as mais de 26 milhões de linhas em tempo real.*
 
 ![Detalhes da Execução 10/11/2026](md-images/detalhes-execucao-download-20261110-2014_2018_2022.png)  
-*Registro temporal do PowerShell comprovando o tempo de 1m 27s para a ingestão e conversão analítica completa.*
+*Registro temporal comprovando o tempo de 1m 27s para a ingestão e conversão analítica completa.*
 
 ---
 
@@ -231,31 +278,22 @@ Evolução com streaming em memória, sem extração de CSV intermediário em di
 * **Python** 3.13 ou superior.
 * Gerenciador de pacotes **[uv](https://github.com/astral-sh/uv)** (recomendado).
 
-### 1. Configuração do Ambiente
+### 1. Clonar e Configurar o Ambiente
 
-Abra o terminal na raiz do projeto:
+```bash
+# Clone o repositório
+git clone https://github.com/lucaspedrom/opt-tse-analytics.git
+cd opt-tse-analytics
 
-```powershell
-# Cria o ambiente virtual
-uv venv
-
-# Ativa o ambiente virtual
-# No Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-# No Windows (CMD):
-.venv\Scripts\activate.bat
-# No Linux/macOS:
-source .venv/bin/activate
-
-# Instala e sincroniza as dependências declaradas no pyproject.toml
+# Cria e sincroniza o ambiente virtual automaticamente com uv
 uv sync
 ```
 
 ### 2. Parâmetros e Argumentos de CLI
 
-O arquivo [main.py](file:///d:/Projetos/tse-ingestao/main.py) permite selecionar as bases e os anos desejados:
+O arquivo [main.py](main.py) permite selecionar as bases e os anos desejados:
 
-```powershell
+```bash
 uv run main.py [argumentos]
 ```
 
@@ -268,17 +306,17 @@ uv run main.py [argumentos]
 #### Exemplos práticos:
 
 * **Download de todas as bases de 2014 a 2024, de 2 em 2 anos:**
-  ```powershell
+  ```bash
   uv run main.py --base all --inicio 2014 --fim 2024 --intervalo 2
   ```
 
 * **Download focado em bens de candidatos (2014, 2018 e 2022):**
-  ```powershell
+  ```bash
   uv run main.py --base bens_candidatos --inicio 2014 --fim 2022 --intervalo 4
   ```
 
 * **Download rápido para teste (motivo de cassação de 2022):**
-  ```powershell
+  ```bash
   uv run main.py --base motivo_cassacao --inicio 2022 --fim 2022
   ```
 
@@ -286,7 +324,7 @@ uv run main.py [argumentos]
 
 ## 🔍 Como Consumir os Dados Particionados
 
-Uma das grandes vantagens da estrutura gerada é a simplicidade e a performance de leitura nos principais ecossistemas de análise:
+Uma das grandes vantagens da estrutura gerada é a facilidade de leitura e o suporte a *Partition Pruning* nos ecossistemas analíticos modernos:
 
 ### Com Polars (Lazy Evaluation com Leitura Rápida):
 ```python
@@ -295,7 +333,7 @@ import polars as pl
 # Lê todas as partições descobrindo a coluna 'ano' automaticamente
 df = pl.scan_parquet("data/motivo_cassacao/**/*.parquet")
 
-# Filtra apenas o ano desejado sem ler os demais arquivos do disco
+# Filtra apenas o ano desejado sem ler os demais arquivos do disco (Partition Pruning)
 dados_2022 = df.filter(pl.col("ano") == "2022").collect()
 print(dados_2022.head())
 ```
@@ -317,3 +355,33 @@ dataset = ds.dataset("data/motivo_cassacao", format="parquet", partitioning="hiv
 tabela = dataset.to_table(filter=ds.field("ano") == "2022")
 print(tabela.num_rows)
 ```
+
+---
+
+## 📂 Estrutura de Diretórios
+
+```text
+opt-tse-analytics/
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # Pipeline de CI (Lint e Formatação com Ruff)
+├── md-images/                  # Registros visuais das evidências de performance
+├── src/                        # Núcleo modular da aplicação
+│   ├── __init__.py             # Inicialização do pacote Python
+│   ├── console.py              # Instância singleton do console Rich
+│   ├── converter.py            # Motor de conversão streaming CSV -> Parquet via PyArrow
+│   ├── datasets.py             # Dataclass TSEDataset, endpoints e catálogo de bases
+│   └── downloader.py           # Orquestrador HTTP, connection pooling e ThreadPool
+├── .gitignore                  # Regras de exclusão Git (dados, caches, IDEs, SO)
+├── LICENSE                     # Licença MIT de código aberto
+├── main.py                     # Ponto de entrada e Interface de Linha de Comando (CLI)
+├── pyproject.toml              # Metadados e dependências padronizadas (PEP 621)
+├── README.md                   # Documentação arquitetural e benchmarks
+└── uv.lock                     # Lockfile reprodutível de dependências
+```
+
+---
+
+## 📄 Licença
+
+Este projeto é disponibilizado sob a licença [MIT](LICENSE) para fins de pesquisa, estudo e engenharia de dados.
